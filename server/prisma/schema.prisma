@@ -46,6 +46,7 @@ enum ClaimStatus {
 enum StorageDriver {
   CLOUDINARY
   S3
+  LOCAL
 }
 
 enum EvidenceFileType {
@@ -269,6 +270,8 @@ model EvidenceFile {
   thumbnailUrl     String?          @map("thumbnail_url") @db.VarChar(1024)
   mimeType         String           @map("mime_type") @db.VarChar(127)
   sizeBytes        Int              @map("size_bytes")
+  /// SHA-256 of the file as uploaded, so it can be shown to be unchanged.
+  sha256           String           @db.Char(64)
   fileType         EvidenceFileType @map("file_type")
   category         String           @db.VarChar(64)
   caption          String?          @db.VarChar(500)

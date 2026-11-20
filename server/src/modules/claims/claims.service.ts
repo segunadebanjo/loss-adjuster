@@ -18,6 +18,7 @@ import {
 } from "../../lib/claimWorkflow.js";
 import type { AuthUser } from "../../middleware/authenticate.js";
 import { createPolicyTx, policyOut } from "../policies/policies.service.js";
+import { recomputeSettlement } from "../valuation/settlementStore.js";
 
 export const POLICY_TYPE_LABELS = [
   { value: "MOTOR", label: "Motor" },
@@ -281,6 +282,9 @@ export async function updateClaim(actor: AuthUser, id: number, input: ClaimUpdat
   await prisma.$transaction(async (tx) => {
     const before = await findScopedClaim(actor, id, tx);
     if (CLOSED_STATUSES.includes(before.status)) throw unprocessable("This claim is closed. Reopen it before making changes.");
+    if (before.status === "PENDING_SIGNOFF" && (input.valueAtRisk !== undefined || input.applyAverage !== undefined)) {
+      throw unprocessable("The figures are with the principal for sign-off. Return the claim to change the value at risk or average.");
+    }
     const dateOfLoss = input.dateOfLoss ?? dateOut(before.dateOfLoss)!;
     const dateInstructed = input.dateInstructed ?? dateOut(before.dateInstructed)!;
     if (dateOfLoss > dateInstructed) throw badRequest("The date of loss can't be after the instruction date.");
@@ -294,6 +298,7 @@ export async function updateClaim(actor: AuthUser, id: number, input: ClaimUpdat
       },
     });
     const changes = diffRecords(before, after, [...UPDATE_FIELDS]);
+    if (changes.valueAtRisk || changes.applyAverage) await recomputeSettlement(tx, id);
     if (Object.keys(changes).length) {
       await recordAudit({ action: "CLAIM_UPDATED", entityType: "Claim", entityId: id, claimId: id, userId: actor.id, details: { changes }, ipAddress: ip }, tx);
     }
@@ -399,4 +404,18 @@ export async function claimOptions(user: AuthUser) {
     insurers,
     brokers,
   };
+}
+
+/**
+ * For writes to a claim's sub-records (inspections, evidence, schedule of loss): the claim must be in the caller's
+ * scope (404), the caller staff (403) and the claim open (422). `lockedAt` adds statuses where the record is frozen.
+ */
+export async function claimForStaffWrite(actor: AuthUser, claimId: number, tx: Tx | typeof prisma = prisma, lockedAt: ClaimStatus[] = []) {
+  if (actor.role === "INSURER") throw forbidden();
+  const claim = await findScopedClaim(actor, claimId, tx);
+  if (CLOSED_STATUSES.includes(claim.status)) throw unprocessable("This claim is closed. Reopen it before making changes.");
+  if (lockedAt.includes(claim.status)) {
+    throw unprocessable(`The claim is "${STATUS_LABEL[claim.status]}", so this can't change now. The principal adjuster can return it to make changes.`);
+  }
+  return claim;
 }

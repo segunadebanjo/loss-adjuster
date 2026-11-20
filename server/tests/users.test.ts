@@ -91,6 +91,17 @@ describe("users admin", () => {
     expect(res.status).toBe(200);
     expect((await prisma.policy.findUniqueOrThrow({ where: { id: p.id } })).insurerName).toBe(res.body.data.name);
   });
+
+  it("an update changes only the fields sent", async () => {
+    const created = await admin.post("/api/v1/organisations", { name: `Keep Fields ${Date.now()}`, type: "BROKER", email: "ops@keep.example", phone: "+2348011111111" });
+    const res = await admin.patch(`/api/v1/organisations/${created.body.data.id}`, { phone: "+2348022222222" });
+    expect(res.body.data).toMatchObject({ email: "ops@keep.example", phone: "+2348022222222" });
+    const org = await makeOrg("INSURER");
+    const p = await makePolicy(org.id);
+    await prisma.policy.update({ where: { id: p.id }, data: { excessAmount: "50000.00", excessPercentage: "10.00" } });
+    const upd = await admin.patch(`/api/v1/policies/${p.id}`, { insuredName: "Renamed Insured Ltd" });
+    expect(upd.body.data).toMatchObject({ excessAmount: "50000.00", excessPercentage: "10.00", insuredName: "Renamed Insured Ltd" });
+  });
 });
 
 describe("every API route needs a session", () => {

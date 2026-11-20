@@ -7,6 +7,7 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient, type ClaimStatus, type PolicyType, type Role } from "@prisma/client";
 import { toKobo, fromKobo } from "../src/lib/money.js";
+import { computeSettlement } from "../src/lib/settlement.js";
 
 const prisma = new PrismaClient();
 
@@ -205,7 +206,6 @@ async function main() {
     reserve: number;
     valueAtRisk?: number;
     applyAverage?: boolean;
-    recommended?: number;
     fee?: number;
     insurerClaimNo?: string;
     repudiation?: string;
@@ -216,7 +216,7 @@ async function main() {
       policy: "LAP/MTR/2026/004512", adjuster: chiamaka, loss: "2026-08-03", instructed: "2026-08-05", state: "Lagos", lga: "Eti-Osa",
       address: "Lekki-Epe Expressway by Chevron roundabout, Lekki", status: "SETTLED", reserve: 4_500_000,
       description: "Insured's Toyota Highlander (2021) was hit from behind by a commercial bus in heavy traffic, damaging the rear bumper, tailgate, both tail lamps and rear sensors. Police extract obtained from Maroko division.",
-      recommended: 3_120_000, fee: 350_000, insurerClaimNo: "LAP-CLM-26-1187",
+      fee: 350_000, insurerClaimNo: "LAP-CLM-26-1187",
       items: [
         ["Rear bumper assembly", "Motor Parts", 850_000, 780_000, 0, 0],
         ["Tailgate (panel beating and respray)", "Motor Parts", 1_200_000, 950_000, 0, 0],
@@ -229,7 +229,7 @@ async function main() {
       policy: "LAP/FIR/2026/000873", adjuster: chiamaka, loss: "2026-09-14", instructed: "2026-09-15", state: "Lagos", lga: "Ikeja",
       address: "Plot 7, Oregun Industrial Estate, Ikeja", status: "PENDING_SIGNOFF", reserve: 180_000_000, valueAtRisk: 520_000_000, applyAverage: true,
       description: "Fire started in the raw-materials store at about 02:30, reportedly from an electrical fault during a power surge after grid restoration. Lagos State Fire Service attended; store building, two injection-moulding machines and stock were affected.",
-      recommended: 101_350_000, fee: 4_500_000, insurerClaimNo: "LAP-CLM-26-1402",
+      fee: 4_500_000, insurerClaimNo: "LAP-CLM-26-1402",
       items: [
         ["Raw-materials store: roof, walls and electrical reinstatement", "Building/Civil Works", 48_000_000, 41_500_000, 6_200_000, 0],
         ["Injection-moulding machine No. 3 (Haitian 280T)", "Plant & Machinery", 62_000_000, 54_000_000, 8_100_000, 2_000_000],
@@ -265,7 +265,7 @@ async function main() {
       policy: "SMI/FIR/2026/000315", adjuster: funmi, loss: "2026-07-27", instructed: "2026-07-29", state: "Kano", lga: "Fagge",
       address: "12 Ibrahim Taiwo Road, Sabon Gari", status: "FINAL_REPORT_DRAFTED", reserve: 95_000_000, valueAtRisk: 400_000_000, applyAverage: true,
       description: "Fire spread from a neighbouring warehouse to the insured's finished-goods store; 1,150 bales of printed fabric destroyed. Kano State Fire Service report obtained.",
-      recommended: 63_400_000, fee: 3_200_000,
+      fee: 3_200_000,
       items: [
         ["Finished goods: printed fabric (1,150 bales)", "Stock & Contents", 86_000_000, 79_000_000, 0, 0],
         ["Store roof and steel trusses", "Building/Civil Works", 9_000_000, 7_400_000, 1_100_000, 0],
@@ -297,7 +297,7 @@ async function main() {
       policy: "NDG/MTR/2026/007730", adjuster: tamuno, loss: "2026-08-22", instructed: "2026-08-25", state: "Delta", lga: "Warri South",
       address: "NPA Expressway, Warri", status: "SETTLED", reserve: 6_000_000,
       description: "Truck (fleet No. RH-09) collided with a road barrier at night; front axle and radiator damaged.",
-      recommended: 4_050_000, fee: 420_000,
+      fee: 420_000,
       items: [
         ["Front axle assembly", "Motor Parts", 2_800_000, 2_500_000, 400_000, 0],
         ["Radiator and hoses", "Motor Parts", 950_000, 820_000, 0, 0],
@@ -346,8 +346,6 @@ async function main() {
         initialReserve: naira(c.reserve),
         valueAtRisk: c.valueAtRisk != null ? naira(c.valueAtRisk) : null,
         applyAverage: c.applyAverage ?? false,
-        recommendedSettlement: c.recommended != null ? naira(c.recommended) : null,
-        settledAmount: c.status === "SETTLED" && c.recommended != null ? naira(c.recommended) : null,
         adjusterFee: c.fee != null ? naira(c.fee) : null,
         repudiationReason: c.repudiation ?? null,
         closedAt: closed ? addDays(instructed, 40) : null,
@@ -410,6 +408,29 @@ async function main() {
           netPayable: naira(net),
           sortOrder: i + 1,
         },
+      });
+    }
+
+    // The recommendation is what the settlement engine makes of the schedule, never a typed-in figure.
+    if (c.items?.length) {
+      const policySeed = policySeeds.find((p) => p.no === c.policy)!;
+      const s = computeSettlement({
+        items: c.items.map(([, category, claimed, assessed, dep, bet]) => ({
+          category,
+          claimedAmount: naira(claimed),
+          assessedAmount: naira(assessed),
+          depreciationAmount: naira(dep),
+          bettermentDeduction: naira(bet),
+        })),
+        sumInsured: naira(policySeed.sumInsured),
+        valueAtRisk: c.valueAtRisk != null ? naira(c.valueAtRisk) : null,
+        applyAverage: c.applyAverage ?? false,
+        excessAmount: naira(policySeed.excessAmount),
+        excessPercentage: policySeed.excessPct.toFixed(2),
+      });
+      await prisma.claim.update({
+        where: { id: claim.id },
+        data: { recommendedSettlement: s.netRecommended, ...(c.status === "SETTLED" ? { settledAmount: s.netRecommended } : {}) },
       });
     }
 

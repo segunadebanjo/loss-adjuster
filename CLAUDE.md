@@ -4,8 +4,8 @@ Guidance for Claude Code when working in `loss-adjuster/`. This app is **separat
 in the rest of this repository: it shares no code, database or deployment with it, and the ERP's root `CLAUDE.md` rules
 (Sequelize, ESM JavaScript, `new-backend/`) do **not** apply here. Nothing outside `loss-adjuster/` is touched by this app.
 
-Status: **Phases 1-2 done** (2026-11-20): setup, schema, seed, auth; claims API and workflow, dashboard, intake, users and
-organisations admin. Next: Phase 3 (adjuster workspace).
+Status: **Phases 1-3 done** (2026-11-20): setup, schema, seed, auth; claims, dashboard, intake, admin; site inspections,
+evidence uploads and the schedule of loss with the settlement engine. Next: Phase 4 (sign-off, audit UI, PDFs).
 Decisions marked _(assumption)_ were accepted by the user on 2026-11-20 and can still be changed.
 
 ---
@@ -283,6 +283,41 @@ Each phase ends green on build, typecheck, lint and tests, committed and pushed 
     The client shows the first message per field (`fieldErrors`). Filters live in the URL (`useClaimFilters`).
   - Tests: `claims.test.ts` (intake, scope, filters, workflow, dashboard), `users.test.ts` (admin rules and a 401 check
     on every route), `sla.test.ts`. 55 in all.
+- **Phase 3 (adjuster workspace):**
+  - **Settlement engine** `lib/settlement.ts` (pure, `tests/settlement.test.ts`): line net = assessed - depreciation -
+    betterment (not below 0; deductions above the assessed amount are refused); a `Salvage Recovery` line is the amount
+    recovered and is deducted (no deductions allowed on it); average only when applied **and** value at risk > sum
+    insured (no value at risk = not tested, with a warning); excess = greater of fixed and % of the loss after
+    average; net not below 0 nor above the sum insured. `valuation/settlementStore.ts` `recomputeSettlement(tx, id)`
+    stores `claims.recommended_settlement` (null while there are no lines) and is called after every line change, a
+    value-at-risk/average edit on the claim, and a sum-insured/excess edit on the policy (for its open claims). The
+    schedule, value at risk and average are frozen at PENDING_SIGNOFF (and closed). The seed computes its figures
+    with the same engine. The client never adds money: per-line `deductions` and `totalDeductions` come from the API.
+  - **Zod partial + default trap:** `.partial()` keeps `.default()`, so an update schema built from a create schema
+    with defaults silently resets omitted fields. Update schemas are built from a base without defaults (policies,
+    valuation items); create schemas `.extend` it with the defaults. Same for transforms that turn `undefined` into
+    `null` (organisation email). `users.test.ts` "an update changes only the fields sent" pins this.
+  - **Inspections** (`/claims/:claimId/inspections`, staff only): scheduling the first one moves NEW_INSTRUCTION ->
+    INSPECTION_SCHEDULED, and recording `completedDate` moves INSPECTION_SCHEDULED -> UNDER_INVESTIGATION, both through
+    `moveClaimStatus`. Only the principal may send an adjuster other than the claim's. GPS is two DECIMAL(9,6)
+    columns; points outside Nigeria's bounding box are flagged, not refused. A completed inspection can't be removed;
+    a pending one is cancelled with a reason (soft).
+  - **Evidence** (`/claims/:claimId/evidence`): multer memory upload (field `files`, 20 per request, 100 MB cap), then
+    the file's **magic bytes** (`file-type`) decide the type: JPG/PNG/WebP/HEIC (15 MB), MP4/MOV/WebM/3GP (100 MB),
+    PDF/DOCX/XLSX (15 MB). A batch is all or nothing. Each row stores the SHA-256 of the original. Files go to
+    storage first, then rows in one transaction (a DB failure can leave an orphan object). Removing is soft with a
+    reason; the stored object is kept. Insurers list only `visibleToInsurer` files; the uploader's "share" box resets
+    after each batch so sharing is always deliberate.
+  - **Storage** (`src/storage`): `STORAGE_DRIVER=cloudinary|s3|local`. Links are generated per request, never stored:
+    Cloudinary uploads as type `authenticated` (original kept unchanged; previews are signed delivery transformations
+    `c_fill,q_auto,f_auto`; signed URLs don't expire), S3 uses a private bucket with 1-hour presigned GETs (no
+    previews except the image itself), `local` writes under `STORAGE_DIR` and serves `/api/v1/files/<key>` with an
+    expiring HMAC (public by mount order, refused in production). `driverFor(row.storageDriver)` keeps old files
+    readable after a driver change only for LOCAL; switching between Cloudinary and S3 needs a migration of files.
+    **The Cloudinary and S3 drivers have not been run against the live services** (tests cover link signing only);
+    test an upload on a real account before going live.
+  - Tests: `workspace.test.ts` (inspections, evidence with real PNG/PDF bytes and a disguised HTML file, signed
+    links, the schedule of loss end to end). 72 in all.
 - The firm name in the sidebar ("Pinnacle Loss Adjusters Ltd") is a placeholder until firm settings arrive (Phase 4).
 
 ## 14. Rules for every change

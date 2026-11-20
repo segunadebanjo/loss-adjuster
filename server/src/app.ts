@@ -12,6 +12,10 @@ import { dashboardRoutes } from "./modules/dashboard/dashboard.routes.js";
 import { organisationRoutes } from "./modules/organisations/organisations.routes.js";
 import { policyRoutes } from "./modules/policies/policies.routes.js";
 import { userRoutes } from "./modules/users/users.routes.js";
+import { evidenceRoutes } from "./modules/evidence/evidence.routes.js";
+import { fileRoutes } from "./modules/evidence/files.routes.js";
+import { inspectionRoutes } from "./modules/inspections/inspections.routes.js";
+import { valuationRoutes } from "./modules/valuation/valuation.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 export function createApp() {
@@ -35,8 +39,13 @@ export function createApp() {
 
   const api = express.Router();
   api.use("/auth", authRoutes);
+  // Signed, expiring links for locally stored files (development); public by mount order.
+  api.use("/files", fileRoutes);
   // Everything below needs a signed-in user.
   api.use(authenticate);
+  api.use("/claims/:claimId/inspections", inspectionRoutes);
+  api.use("/claims/:claimId/evidence", evidenceRoutes);
+  api.use("/claims/:claimId/valuation", valuationRoutes);
   api.use("/claims", claimRoutes);
   api.use("/dashboard", dashboardRoutes);
   api.use("/policies", policyRoutes);

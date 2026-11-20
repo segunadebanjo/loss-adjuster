@@ -9,7 +9,7 @@ export const organisationInput = z.object({
   name: zRequiredText(191),
   type: z.enum(["INSURER", "BROKER"]),
   naicomLicenceNo: zText(64),
-  email: z.union([z.literal(""), z.email("Enter a valid email address.")]).nullable().optional().transform((v) => v || null),
+  email: z.union([z.literal(""), z.email("Enter a valid email address.")]).nullable().optional().transform((v) => (v === undefined ? undefined : v || null)),
   phone: zText(32),
   address: zText(500),
 });

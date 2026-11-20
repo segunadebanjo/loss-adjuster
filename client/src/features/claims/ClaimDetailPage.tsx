@@ -13,6 +13,9 @@ import { StatusBadge } from "@/shared/components/StatusBadge";
 import { Button, Card, ErrorNote, Spinner } from "@/shared/components/ui";
 import { ComingSoon } from "@/shared/components/ComingSoon";
 import { AssignDialog, DeleteClaimDialog, EditClaimDialog, TransitionDialog } from "./ClaimDialogs";
+import { InspectionTab } from "@/features/workspace/InspectionTab";
+import { EvidenceTab } from "@/features/workspace/EvidenceTab";
+import { ScheduleOfLossTab } from "@/features/workspace/ScheduleOfLossTab";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -133,13 +136,14 @@ function Overview({ c, staff }: { c: ClaimDetail; staff: boolean }) {
 
 const STAFF_TABS = [
   { key: "overview", label: "Overview & Policy" },
-  { key: "inspection", label: "Site Inspection", phase: 3, text: "Schedule and record site inspections: GPS location, site notes, cause of loss and liability checks." },
-  { key: "evidence", label: "Evidence Gallery", phase: 3, text: "Drag-and-drop photos, videos and documents straight to cloud storage." },
-  { key: "schedule", label: "Schedule of Loss", phase: 3, text: "Line items with depreciation, betterment and salvage, the average clause and excess, giving the net recommended settlement." },
+  { key: "inspection", label: "Site Inspection" },
+  { key: "evidence", label: "Evidence Gallery" },
+  { key: "schedule", label: "Schedule of Loss" },
   { key: "audit", label: "Audit Trail", phase: 4, text: "Every change to this claim: who, what and when." },
 ] as const;
 const INSURER_TABS = [
   { key: "overview", label: "Overview & Policy" },
+  { key: "evidence", label: "Evidence" },
   { key: "documents", label: "Reports & Fee Notes", phase: 4, text: "Download the approved preliminary and final reports and the fee note." },
 ] as const;
 
@@ -223,6 +227,12 @@ export function ClaimDetailPage() {
       <div role="tabpanel">
         {current.key === "overview" ? (
           <Overview c={c} staff={staff} />
+        ) : current.key === "inspection" ? (
+          <InspectionTab claim={c} />
+        ) : current.key === "evidence" ? (
+          <EvidenceTab claim={c} readOnly={!staff} />
+        ) : current.key === "schedule" ? (
+          <ScheduleOfLossTab claim={c} />
         ) : "phase" in current ? (
           <ComingSoon title="" phase={current.phase}>{current.text}</ComingSoon>
         ) : null}

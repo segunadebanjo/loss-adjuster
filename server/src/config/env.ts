@@ -12,6 +12,17 @@ const schema = z.object({
   ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().min(1).max(120).default(15),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
+  STORAGE_DRIVER: z.enum(["cloudinary", "s3", "local"]).default("local"),
+  STORAGE_DIR: z.string().default("./storage"),
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
+  STORAGE_FOLDER: z.string().default("loss-adjuster"),
+  AWS_REGION: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_ENDPOINT: z.string().optional(),
   VAT_RATE: z.coerce.number().min(0).max(100).default(7.5),
   WHT_RATE: z.coerce.number().min(0).max(100).default(10),
 });
@@ -27,6 +38,16 @@ function load(): Env {
   const env = parsed.data;
   if (env.NODE_ENV === "production" && /change-me/.test(env.JWT_ACCESS_SECRET + env.JWT_REFRESH_SECRET)) {
     throw new Error("Set real JWT_ACCESS_SECRET and JWT_REFRESH_SECRET values in production.");
+  }
+  const blank = (v?: string) => !v || v.trim() === "";
+  if (env.STORAGE_DRIVER === "cloudinary" && [env.CLOUDINARY_CLOUD_NAME, env.CLOUDINARY_API_KEY, env.CLOUDINARY_API_SECRET].some(blank)) {
+    throw new Error("STORAGE_DRIVER=cloudinary needs CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.");
+  }
+  if (env.STORAGE_DRIVER === "s3" && [env.S3_BUCKET, env.AWS_REGION].some(blank)) {
+    throw new Error("STORAGE_DRIVER=s3 needs S3_BUCKET and AWS_REGION (and credentials unless the host provides them).");
+  }
+  if (env.STORAGE_DRIVER === "local" && env.NODE_ENV === "production") {
+    throw new Error("STORAGE_DRIVER=local is for development only. Use cloudinary or s3 in production.");
   }
   if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
     throw new Error("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must differ.");

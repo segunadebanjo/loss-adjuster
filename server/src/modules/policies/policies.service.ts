@@ -7,6 +7,7 @@ import { dateIn, dateOut } from "../../lib/dates.js";
 import { moneyOut } from "../../lib/money.js";
 import { zDate, zMoney, zPercent, zRequiredText, zText } from "../../lib/validation.js";
 import type { AuthUser } from "../../middleware/authenticate.js";
+import { recomputeSettlement } from "../valuation/settlementStore.js";
 
 export const POLICY_TYPES = ["MOTOR", "PROPERTY_FIRE", "MARINE_CARGO", "OIL_AND_GAS", "ENGINEERING_CAR", "GENERAL_ACCIDENT"] as const;
 
@@ -19,13 +20,15 @@ const policyFields = z.object({
   insuredContact: zText(255),
   policyType: z.enum(POLICY_TYPES, { message: "Pick the class of insurance." }),
   sumInsured: zMoney.refine((v) => Number(v) > 0, "Sum insured must be more than zero."),
-  excessAmount: zMoney.default("0.00"),
-  excessPercentage: zPercent.default("0.00"),
+  excessAmount: zMoney,
+  excessPercentage: zPercent,
   startDate: zDate,
   endDate: zDate,
 });
+// Defaults only when creating: on an update a missing field means "leave it as it is".
+const policyCreateFields = policyFields.extend({ excessAmount: zMoney.default("0.00"), excessPercentage: zPercent.default("0.00") });
 const periodCheck = (p: { startDate?: string; endDate?: string }) => !p.startDate || !p.endDate || p.endDate >= p.startDate;
-export const policyInput = policyFields.refine(periodCheck, { message: "The policy must end on or after its start date.", path: ["endDate"] });
+export const policyInput = policyCreateFields.refine(periodCheck, { message: "The policy must end on or after its start date.", path: ["endDate"] });
 export const policyUpdate = policyFields.partial().refine(periodCheck, { message: "The policy must end on or after its start date.", path: ["endDate"] });
 export type PolicyInput = z.infer<typeof policyInput>;
 
@@ -137,6 +140,11 @@ export async function updatePolicy(actor: AuthUser, id: number, input: z.infer<t
       },
     });
     const changes = diffRecords(before, after, [...FIELDS]);
+    // Sum insured and excess feed every open claim's settlement on this policy.
+    if (changes.sumInsured || changes.excessAmount || changes.excessPercentage) {
+      const open = await tx.claim.findMany({ where: { policyId: id, status: { notIn: ["SETTLED", "REPUDIATED"] } }, select: { id: true } });
+      for (const c of open) await recomputeSettlement(tx, c.id);
+    }
     if (Object.keys(changes).length) {
       await recordAudit({ action: "POLICY_UPDATED", entityType: "Policy", entityId: id, userId: actor.id, details: { changes }, ipAddress: ip }, tx);
     }

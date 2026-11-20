@@ -46,3 +46,16 @@ export function moneyToInput(v: string | null | undefined): string {
   if (v == null) return "";
   return Number(v).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+/** A datetime-local value ("2026-10-03T09:00"), read as Lagos time, -> ISO with offset for the API. */
+export function lagosInputToIso(v: string): string {
+  return `${v}:00+01:00`;
+}
+/** ISO timestamp -> datetime-local value in Lagos time. */
+export function isoToLagosInput(iso: string | null | undefined): string {
+  return iso ? new Date(new Date(iso).getTime() + 3_600_000).toISOString().slice(0, 16) : "";
+}
+/** Now, as a datetime-local value in Lagos time. */
+export function nowLagosInput(): string {
+  return isoToLagosInput(new Date().toISOString());
+}

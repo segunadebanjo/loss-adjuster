@@ -150,3 +150,77 @@ export interface AdminUser {
   lastLoginAt: string | null;
   openClaims: number;
 }
+
+export interface Inspection {
+  id: number;
+  adjuster: { id: number; fullName: string };
+  scheduledDate: string;
+  completedDate: string | null;
+  gpsLatitude: number | null;
+  gpsLongitude: number | null;
+  gpsOutsideNigeria: boolean;
+  siteNotes: string | null;
+  causeOfLossVerified: boolean;
+  policyLiabilityConfirmed: boolean;
+  thirdPartyInvolvement: boolean;
+  createdAt: string;
+}
+
+export interface EvidenceFile {
+  id: number;
+  fileName: string;
+  fileType: "PHOTO" | "DOCUMENT" | "INVOICE" | "VIDEO";
+  category: string;
+  caption: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  visibleToInsurer: boolean;
+  uploadedBy: { id: number; fullName: string };
+  createdAt: string;
+  url: string;
+  thumbnailUrl: string | null;
+  downloadUrl: string;
+}
+
+export interface ValuationItem {
+  id: number;
+  itemDescription: string;
+  category: string;
+  claimedAmount: string;
+  assessedAmount: string;
+  depreciationAmount: string;
+  bettermentDeduction: string;
+  netPayable: string;
+  /** Depreciation + betterment, worked out by the server. */
+  deductions: string;
+  adjusterNotes: string | null;
+  sortOrder: number;
+}
+
+export interface Settlement {
+  lineCount: number;
+  totalClaimed: string;
+  totalAssessed: string;
+  totalDepreciation: string;
+  totalBetterment: string;
+  salvage: string;
+  grossLoss: string;
+  average: { applied: boolean; ratioPercent: string | null; reduction: string; reason: string };
+  lossAfterAverage: string;
+  excess: { fixed: string; percentage: string; percentageAmount: string; applied: string; basis: "FIXED" | "PERCENTAGE" | "NONE" };
+  netBeforeCap: string;
+  cappedAtSumInsured: boolean;
+  netRecommended: string;
+  savings: string;
+  warnings: string[];
+}
+
+export interface Valuation {
+  items: ValuationItem[];
+  settlement: Settlement;
+  totalDeductions: string;
+  basis: { sumInsured: string; valueAtRisk: string | null; applyAverage: boolean; excessAmount: string; excessPercentage: string };
+  editable: boolean;
+  categories: string[];
+}
