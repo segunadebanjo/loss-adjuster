@@ -25,3 +25,27 @@ export async function recordAudit(entry: AuditEntry, tx: Tx | typeof prisma = pr
     },
   });
 }
+
+type Plain = string | number | boolean | null;
+function norm(v: unknown): Plain {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "object" && "toFixed" in (v as object)) return String(v); // Prisma Decimal
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  return JSON.stringify(v);
+}
+
+/** { field: { from, to } } for the listed fields that changed. Secrets never belong in `fields`. */
+export function diffRecords<T extends Record<string, unknown>>(
+  before: T,
+  after: T,
+  fields: Array<keyof T & string>,
+): Record<string, { from: Plain; to: Plain }> {
+  const out: Record<string, { from: Plain; to: Plain }> = {};
+  for (const f of fields) {
+    const a = norm(before[f]);
+    const b = norm(after[f]);
+    if (a !== b && !(a != null && b != null && Number(a) === Number(b) && typeof a !== "boolean")) out[f] = { from: a, to: b };
+  }
+  return out;
+}

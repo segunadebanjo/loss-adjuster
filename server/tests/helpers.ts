@@ -51,3 +51,20 @@ export async function makeClaim(policyId: number, assignedAdjusterId: number | n
     },
   });
 }
+
+import request from "supertest";
+import type { Express } from "express";
+
+/** Signs a user in and returns helpers that send their bearer token. */
+export async function signIn(app: Express, email: string) {
+  const res = await request(app).post("/api/v1/auth/login").send({ email, password: PASSWORD });
+  if (res.status !== 200) throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.body)}`);
+  const auth = { Authorization: `Bearer ${res.body.accessToken as string}` };
+  return {
+    get: (url: string) => request(app).get(url).set(auth),
+    post: (url: string, body?: object) => request(app).post(url).set(auth).send(body),
+    patch: (url: string, body?: object) => request(app).patch(url).set(auth).send(body),
+    put: (url: string, body?: object) => request(app).put(url).set(auth).send(body),
+    del: (url: string, body?: object) => request(app).delete(url).set(auth).send(body),
+  };
+}

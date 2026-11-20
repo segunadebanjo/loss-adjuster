@@ -48,22 +48,13 @@ async function wipe() {
   await prisma.refreshToken.deleteMany();
   await prisma.user.deleteMany();
   await prisma.organisation.deleteMany();
-  await prisma.slaTarget.deleteMany();
 }
 
 async function main() {
   await wipe();
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
 
-  // --- SLA targets (CLAUDE.md section 4; editable by an admin later) ---
-  await prisma.slaTarget.createMany({
-    data: [
-      { key: "INSPECTION", label: "Site inspection after instruction", targetDays: 2, businessDays: true },
-      { key: "PRELIM_REPORT", label: "Preliminary report after instruction", targetDays: 7, businessDays: false },
-      { key: "FINAL_REPORT", label: "Final report after documents complete", targetDays: 14, businessDays: false },
-      { key: "SIGNOFF", label: "Principal sign-off after final report", targetDays: 3, businessDays: true },
-    ],
-  });
+  // SLA targets come from the sla_target_defaults migration and are left alone here.
 
   // --- Organisations (fictional) ---
   const org = async (name: string, type: "INSURER" | "BROKER", extra: Record<string, string>) =>
@@ -371,7 +362,7 @@ async function main() {
     let at = instructed;
     let prev: ClaimStatus | null = null;
     for (const [i, s] of steps.entries()) {
-      if (i > 0) at = addDays(at, i === 1 ? 1 : 4);
+      if (i > 0) at = addDays(at, i === 1 ? 1 : 3);
       if (at > TODAY) at = TODAY;
       await prisma.claimStatusHistory.create({
         data: {

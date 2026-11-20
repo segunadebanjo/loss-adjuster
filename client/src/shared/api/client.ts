@@ -57,6 +57,22 @@ api.interceptors.response.use(undefined, async (error: AxiosError) => {
   throw error;
 });
 
+/** Field errors from a 400 response, keyed by path ("policy.sumInsured"). */
+export function fieldErrors(err: unknown): Record<string, string> {
+  if (!axios.isAxiosError(err)) return {};
+  const details = (err.response?.data as ApiErrorBody | undefined)?.error?.details;
+  if (!Array.isArray(details)) return {};
+  // The first message for each field is the one that matters (e.g. "Enter a date." before "Not a real date.").
+  const out: Record<string, string> = {};
+  for (const d of details as Array<{ path: string; message: string }>) out[d.path] ??= d.message;
+  return out;
+}
+
+/** The API error code ("DUPLICATE_SUSPECTED", "CONFLICT" ...), if any. */
+export function errorCode(err: unknown): string | undefined {
+  return axios.isAxiosError(err) ? (err.response?.data as ApiErrorBody | undefined)?.error?.code : undefined;
+}
+
 /** A readable message from any API error. */
 export function errorMessage(err: unknown, fallback = "Something went wrong. Please try again."): string {
   if (axios.isAxiosError(err)) {

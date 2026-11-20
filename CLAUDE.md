@@ -4,7 +4,8 @@ Guidance for Claude Code when working in `loss-adjuster/`. This app is **separat
 in the rest of this repository: it shares no code, database or deployment with it, and the ERP's root `CLAUDE.md` rules
 (Sequelize, ESM JavaScript, `new-backend/`) do **not** apply here. Nothing outside `loss-adjuster/` is touched by this app.
 
-Status: **Phase 1 done** (2026-11-20): setup, schema + first migration, seed, auth API, login UI and app shell.
+Status: **Phases 1-2 done** (2026-11-20): setup, schema, seed, auth; claims API and workflow, dashboard, intake, users and
+organisations admin. Next: Phase 3 (adjuster workspace).
 Decisions marked _(assumption)_ were accepted by the user on 2026-11-20 and can still be changed.
 
 ---
@@ -252,6 +253,36 @@ Each phase ends green on build, typecheck, lint and tests, committed and pushed 
   `prisma migrate deploy`, and drops it afterwards; files run one at a time and create their own rows with
   `tests/helpers.ts`. Covered so far: money maths, auth (login, validation, inactive users, forged tokens, rotation and
   reuse detection, logout, rate limit) and claim scoping per role, plus soft delete.
+- **Phase 2 (claims, dashboard, intake, admin):**
+  - `lib/claimWorkflow.ts` holds `CLAIM_TRANSITIONS` (who may make which move; reason / settled amount needed),
+    `STATUS_LABEL` and `LINES` (Motor, Marine = MARINE_CARGO, Oil & Gas, Property = PROPERTY_FIRE + ENGINEERING_CAR,
+    General Accident). `claims.service.ts` `moveClaimStatus(tx, actor, claimId, to, opts)` is the only status writer:
+    conditional update on the status read (409 if it changed), history row and audit in the caller's transaction.
+    **Phase 3/4 actions (scheduling an inspection, approving a report) must call it**, not write `status`. Until then
+    the moves are manual buttons. Reopen = ADMIN, closed -> UNDER_INVESTIGATION with a reason; it clears closedAt,
+    settledAmount and repudiationReason (the audit keeps them).
+  - `buildClaimWhere(user, filters)` is shared by the list and the dashboard and always ANDs `claimScope`. Insurers get
+    no `adjusterFee` / `valueAtRisk` / `applyAverage`, `recommendedSettlement` only once SETTLED, and a timeline without
+    who moved it or internal reasons (`figuresFor`, `getClaim`). Detail returns `allowedTransitions` and `permissions`
+    for the caller; the UI only renders them.
+  - Intake (`POST /claims`) takes `policyId` or a new `policy` (created in the same transaction, so a failed intake
+    leaves no policy), defaults `applyAverage` on for Property/Fire, CAR and Oil & Gas, and answers 409
+    `DUPLICATE_SUSPECTED` when the policy has an open claim with the same date of loss unless `confirmDuplicate`.
+    A loss outside the policy period is a warning on the claim, not a refusal. Delete = ADMIN, NEW_INSTRUCTION only,
+    soft. `GET /policies/verify?naicomUid=` (UIDs are stored upper-case).
+  - Edits: ADMIN all fields; the assigned adjuster only `ADJUSTER_EDITABLE` (site details, value at risk, average);
+    closed claims refuse edits (422). Users: an admin can't change their own role or deactivate themselves; an adjuster
+    with open claims can't be deactivated or re-roled (409, reassign first); deactivation, role change and a password
+    set revoke refresh tokens. Renaming an organisation rewrites the name printed on its policies.
+  - SLA: `lib/sla.ts` (pure) works clocks out of status history and inspections; targets are rows in `sla_targets`,
+    seeded by the `sla_target_defaults` migration (not the dev seed). Working days skip weekends only, **not Nigerian
+    public holidays**. Dashboard (`GET /dashboard/kpis`, same filters as the list) loads the filtered claims and sums in
+    kobo in JS; fine for thousands of claims, revisit with SQL aggregates beyond that. "Claimed vs adjusted" compares
+    claims that have a figure and a schedule of loss (insurers: settled only); salvage lines are not "claimed".
+  - Validation: `lib/validation.ts` (`zMoney`, `zPercent`, `zDate`, `zText`, plain-English defaults via `z.config`).
+    The client shows the first message per field (`fieldErrors`). Filters live in the URL (`useClaimFilters`).
+  - Tests: `claims.test.ts` (intake, scope, filters, workflow, dashboard), `users.test.ts` (admin rules and a 401 check
+    on every route), `sla.test.ts`. 55 in all.
 - The firm name in the sidebar ("Pinnacle Loss Adjusters Ltd") is a placeholder until firm settings arrive (Phase 4).
 
 ## 14. Rules for every change
