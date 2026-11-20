@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { NIGERIAN_STATES } from "../../lib/nigeria.js";
 import { LINES } from "../../lib/claimWorkflow.js";
-import { paginationSchema, zCsv, zDate, zMoney, zRequiredText, zText } from "../../lib/validation.js";
+import { paginationSchema, zCsv, zDate, zMoney, zPercent, zRequiredText, zText } from "../../lib/validation.js";
 import { POLICY_TYPES, policyInput } from "../policies/policies.service.js";
 
 export const CLAIM_STATUSES = [
@@ -83,6 +83,10 @@ export const claimUpdate = z.object({
   valueAtRisk: lossFields.valueAtRisk,
   applyAverage: z.boolean().optional(),
   adjusterFee: zMoney.nullable().optional(),
+  /** Another adjusting firm on the claim and its share of the fee (principal only). */
+  coAdjusterFirm: zText(191),
+  coAdjusterNaicomNo: zText(64),
+  coAdjusterSplitPercent: zPercent.nullable().optional(),
 });
 export type ClaimUpdate = z.infer<typeof claimUpdate>;
 /** What an assigned adjuster may change; the rest is the principal's. */

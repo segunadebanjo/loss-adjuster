@@ -8,11 +8,14 @@ import { dateOut } from "../../lib/dates.js";
 import { firm } from "../../lib/firm.js";
 import { fromKobo, moneyOut, toKobo } from "../../lib/money.js";
 import { SALVAGE_CATEGORY } from "../../lib/settlement.js";
-import { buildReportPdf, type ReportPdfModel } from "../../pdf/reportPdf.js";
+import type { ReportPdfModel } from "../../pdf/reportPdf.js";
 import { longDate, money } from "../../pdf/common.js";
 import type { AuthUser } from "../../middleware/authenticate.js";
 import { POLICY_TYPE_LABELS, claimForStaffWrite, findScopedClaim, moveClaimStatus } from "../claims/claims.service.js";
 import { recomputeSettlement } from "../valuation/settlementStore.js";
+import { tierFor } from "../../lib/approvalMatrix.js";
+import { loadTiers } from "../approval-tiers/approvalTiers.js";
+import { renderReportPdf } from "../../pdf/pdfGenerator.js";
 
 export interface SectionDef {
   key: string;
@@ -25,6 +28,7 @@ export interface SectionDef {
 export const REPORT_SECTIONS: Record<ReportType, SectionDef[]> = {
   PRELIMINARY: [
     { key: "background", title: "Instruction", required: true, hint: "Who instructed us, when, and what we were asked to do." },
+    { key: "risk", title: "The insured and the risk", required: false, hint: "Who the insured is, their business, and the property or risk insured." },
     { key: "circumstances", title: "Circumstances of the loss", required: true, hint: "What happened, as reported and as we found it." },
     { key: "inspection", title: "Our inspection", required: true, hint: "The site visit: what we saw, who we met. The inspection checklist is added below it." },
     { key: "cause", title: "Cause of loss", required: true, hint: "The proximate cause, and how it was verified." },
@@ -35,6 +39,7 @@ export const REPORT_SECTIONS: Record<ReportType, SectionDef[]> = {
   ],
   FINAL: [
     { key: "background", title: "Instruction", required: true, hint: "Who instructed us, when, and our earlier reports." },
+    { key: "risk", title: "The insured and the risk", required: false, hint: "Who the insured is, their business, and the property or risk insured." },
     { key: "circumstances", title: "Circumstances of the loss", required: true, hint: "What happened." },
     { key: "investigation", title: "Our investigation", required: true, hint: "Inspections, interviews and documents examined." },
     { key: "cause", title: "Cause of loss", required: true, hint: "The proximate cause and how it was established." },
@@ -62,6 +67,7 @@ const CAN_START: Record<ReportType, string[]> = {
 const include = {
   draftedBy: { select: { id: true, fullName: true } },
   reviewedBy: { select: { id: true, fullName: true } },
+  approvals: { where: { revokedAt: null }, orderBy: { createdAt: "asc" }, include: { approvedBy: { select: { id: true, fullName: true, ciiQualification: true } } } },
 } as const;
 type ReportRow = Prisma.ReportGetPayload<{ include: typeof include }>;
 
@@ -76,6 +82,9 @@ function reportOut(r: ReportRow, staff: boolean) {
     reviewedBy: r.reviewedBy,
     reviewedAt: r.reviewedAt?.toISOString() ?? null,
     pdfSha256: r.pdfSha256,
+    requiredApprovals: r.requiredApprovals,
+    approvalTier: r.approvalTierLabel,
+    approvals: r.approvals.map((a) => ({ approvedBy: { id: a.approvedBy.id, fullName: a.approvedBy.fullName }, at: a.createdAt.toISOString(), ...(staff ? { note: a.note } : {}) })),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     ...(staff ? { body: r.body as Body, returnReason: r.returnReason, selfApprovalNote: r.selfApprovalNote } : {}),
@@ -96,7 +105,7 @@ async function snapshot(tx: Tx, claimId: number, type: ReportType, body: Body) {
   const claim = await tx.claim.findUniqueOrThrow({
     where: { id: claimId },
     include: {
-      policy: { include: { insurer: true } },
+      policy: { include: { insurer: true, coInsurers: { orderBy: { sortOrder: "asc" } } } },
       assignedAdjuster: true,
       inspections: { where: { deletedAt: null }, orderBy: { scheduledDate: "desc" } },
     },
@@ -139,12 +148,17 @@ async function snapshot(tx: Tx, claimId: number, type: ReportType, body: Body) {
       sumInsured: moneyOut(p.sumInsured)!,
       excess: excessText(String(p.excessAmount), String(p.excessPercentage)),
     },
-    insurer: { name: p.insurerName, address: p.insurer.address },
+    insurer: { name: p.insurerName, address: p.insurer.address, sharePercent: p.leadSharePercent.toFixed(2) },
+    coInsurers: p.coInsurers.length
+      ? [{ name: p.insurerName, role: "LEAD" as const, sharePercent: p.leadSharePercent.toFixed(2) }, ...p.coInsurers.map((c) => ({ name: c.insurerName, role: "FOLLOWER" as const, sharePercent: c.sharePercent.toFixed(2) }))]
+      : [],
+    coAdjuster: claim.coAdjusterFirm ? { firmName: claim.coAdjusterFirm, naicomNo: claim.coAdjusterNaicomNo, splitPercent: claim.coAdjusterSplitPercent?.toFixed(2) ?? null } : null,
     broker: p.brokerName,
     adjuster: claim.assignedAdjuster ? { fullName: claim.assignedAdjuster.fullName, qualification: claim.assignedAdjuster.ciiQualification, licence: claim.assignedAdjuster.naicomLicenseNo } : null,
     inspection: done
       ? {
           completedAt: done.completedDate,
+          visitedOn: dateOut(done.completedDate),
           gps: done.gpsLatitude != null && done.gpsLongitude != null ? `${Number(done.gpsLatitude).toFixed(5)}, ${Number(done.gpsLongitude).toFixed(5)}` : null,
           causeVerified: done.causeOfLossVerified,
           liabilityConfirmed: done.policyLiabilityConfirmed,
@@ -268,12 +282,21 @@ export async function submitReport(actor: AuthUser, claimId: number, reportId: n
       await moveClaimStatus(tx, actor, claimId, "PENDING_SIGNOFF", { ipAddress: ip, viaReport: true });
     }
     const { model } = await snapshot(tx, claimId, r.type, body);
+    // The approval matrix applies to final reports, by the settlement recommended; a preliminary report needs one sign-off.
+    const tier = r.type === "FINAL" ? tierFor(await loadTiers(tx), model.valuation?.settlement.netRecommended ?? null) : null;
     const after = await tx.report.update({
       where: { id: reportId },
-      data: { status: "SUBMITTED", submittedAt: new Date(), figures: model as unknown as Prisma.InputJsonValue, returnReason: null },
+      data: {
+        status: "SUBMITTED",
+        submittedAt: new Date(),
+        figures: model as unknown as Prisma.InputJsonValue,
+        returnReason: null,
+        requiredApprovals: tier?.requiredApprovals ?? 1,
+        approvalTierLabel: tier?.label ?? null,
+      },
       include,
     });
-    await recordAudit({ action: "REPORT_SUBMITTED", entityType: "Report", entityId: reportId, claimId, userId: actor.id, details: { type: r.type, version: r.version, netRecommended: model.valuation?.settlement.netRecommended ?? null }, ipAddress: ip }, tx);
+    await recordAudit({ action: "REPORT_SUBMITTED", entityType: "Report", entityId: reportId, claimId, userId: actor.id, details: { type: r.type, version: r.version, netRecommended: model.valuation?.settlement.netRecommended ?? null, approvalTier: tier?.label ?? null, requiredApprovals: tier?.requiredApprovals ?? 1 }, ipAddress: ip }, tx);
     return after;
   });
   return reportOut(submitted, true);
@@ -284,44 +307,66 @@ function revive(s: Snapshot): Snapshot {
   return { ...s, inspection: s.inspection ? { ...s.inspection, completedAt: s.inspection.completedAt ? new Date(s.inspection.completedAt) : null } : null };
 }
 
+/**
+ * One principal's sign-off. The report is APPROVED (frozen, PDF rendered and hashed) when it has the number of
+ * sign-offs its approval tier needs; until then it stays SUBMITTED and the sign-offs are listed on it.
+ * Maker-checker: each sign-off is a different principal, and the author signs only when there aren't enough other
+ * active principals to fill the tier (with a note saying so).
+ */
 export async function approveReport(actor: AuthUser, claimId: number, reportId: number, note: string | undefined, ip: string | null) {
   if (actor.role !== "ADMIN") throw forbidden("Only the principal adjuster signs off reports.");
-  const approved = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const claim = await findScopedClaim(actor, claimId, tx);
     const r = await findReport(actor, claimId, reportId, tx);
     if (r.status !== "SUBMITTED") throw unprocessable("Only a submitted report can be signed off.");
-    // Maker-checker: someone other than the author signs off, unless there is no other active principal.
+    if (r.type === "FINAL" && claim.status !== "PENDING_SIGNOFF") throw unprocessable("The claim is no longer pending sign-off.");
+    if (r.approvals.some((a) => a.approvedById === actor.id)) throw conflict("You have already signed off this report. It needs another principal adjuster.");
     let selfApprovalNote: string | null = null;
     if (r.draftedById === actor.id) {
       const others = await tx.user.count({ where: { role: "ADMIN", isActive: true, id: { not: actor.id } } });
-      if (others > 0) throw forbidden("You wrote this report, so another principal adjuster must sign it off.");
-      if (!note?.trim()) throw unprocessable("You are signing off your own report. Add a note saying why (you are the only principal adjuster).");
+      if (others >= r.requiredApprovals) {
+        throw forbidden(r.requiredApprovals > 1 ? "You wrote this report, so other principal adjusters must sign it off." : "You wrote this report, so another principal adjuster must sign it off.");
+      }
+      if (!note?.trim()) throw unprocessable("You are signing off your own report. Add a note saying why (there aren't enough other principal adjusters).");
       selfApprovalNote = note.trim();
     }
-    if (r.type === "FINAL" && claim.status !== "PENDING_SIGNOFF") throw unprocessable("The claim is no longer pending sign-off.");
     const now = new Date();
-    const me = await tx.user.findUniqueOrThrow({ where: { id: actor.id } });
-    const pdf = await buildReportPdf({
+    await tx.reportApproval.create({ data: { reportId, approvedById: actor.id, note: selfApprovalNote ?? (note?.trim() || null) } });
+    const count = r.approvals.length + 1;
+    const complete = count >= r.requiredApprovals;
+    if (!complete) {
+      // Touch the row so a concurrent final sign-off sees the change (conditional on the status read).
+      const touched = await tx.report.updateMany({ where: { id: reportId, status: "SUBMITTED" }, data: { updatedAt: now } });
+      if (touched.count !== 1) throw conflict("This report changed while you were looking at it. Refresh and try again.");
+      await recordAudit({ action: "REPORT_SIGNOFF_ADDED", entityType: "Report", entityId: reportId, claimId, userId: actor.id, details: { type: r.type, version: r.version, signOffs: count, required: r.requiredApprovals, approvalTier: r.approvalTierLabel, selfApprovalNote }, ipAddress: ip }, tx);
+      return { complete };
+    }
+    const approvals = await tx.reportApproval.findMany({ where: { reportId, revokedAt: null }, orderBy: { createdAt: "asc" }, include: { approvedBy: true } });
+    const approvers = approvals.map((a) => ({ fullName: a.approvedBy.fullName, qualification: a.approvedBy.ciiQualification, approvedAt: a.createdAt }));
+    const pdf = await renderReportPdf({
       ...revive(r.figures as unknown as Snapshot),
       firm: firm(),
       version: r.version,
       approved: true,
       date: now,
-      approver: { fullName: me.fullName, qualification: me.ciiQualification, approvedAt: now },
+      approver: approvers[approvers.length - 1]!,
+      approvers,
+      approvalTier: r.approvalTierLabel ? { label: r.approvalTierLabel, requiredApprovals: r.requiredApprovals } : null,
     });
     const sha = createHash("sha256").update(pdf).digest("hex");
     const updated = await tx.report.updateMany({
       where: { id: reportId, status: "SUBMITTED" },
-      data: { status: "APPROVED", reviewedById: actor.id, reviewedAt: now, pdfData: new Uint8Array(pdf), pdfSha256: sha, selfApprovalNote },
+      data: { status: "APPROVED", reviewedById: actor.id, reviewedAt: now, pdfData: new Uint8Array(pdf), pdfSha256: sha, selfApprovalNote: selfApprovalNote ?? r.selfApprovalNote },
     });
     if (updated.count !== 1) throw conflict("This report changed while you were looking at it. Refresh and try again.");
     if (r.type === "PRELIMINARY" && claim.status === "UNDER_INVESTIGATION") {
       await moveClaimStatus(tx, actor, claimId, "PRELIM_REPORT_SUBMITTED", { ipAddress: ip, viaReport: true });
     }
-    await recordAudit({ action: "REPORT_APPROVED", entityType: "Report", entityId: reportId, claimId, userId: actor.id, details: { type: r.type, version: r.version, pdfSha256: sha, selfApprovalNote }, ipAddress: ip }, tx);
-    return tx.report.findUniqueOrThrow({ where: { id: reportId }, include });
+    await recordAudit({ action: "REPORT_APPROVED", entityType: "Report", entityId: reportId, claimId, userId: actor.id, details: { type: r.type, version: r.version, pdfSha256: sha, selfApprovalNote, signOffs: count, required: r.requiredApprovals, approvalTier: r.approvalTierLabel }, ipAddress: ip }, tx);
+    return { complete };
   });
-  return reportOut(approved, true);
+  const after = await prisma.report.findUniqueOrThrow({ where: { id: reportId }, include });
+  return { ...reportOut(after, true), signOffComplete: result.complete };
 }
 
 export async function returnReport(actor: AuthUser, claimId: number, reportId: number, reason: string, ip: string | null) {
@@ -330,6 +375,8 @@ export async function returnReport(actor: AuthUser, claimId: number, reportId: n
     const claim = await findScopedClaim(actor, claimId, tx);
     const r = await findReport(actor, claimId, reportId, tx);
     if (r.status !== "SUBMITTED") throw unprocessable("Only a submitted report can be returned.");
+    // Sign-offs already given were for this submission; a resubmission starts again.
+    await tx.reportApproval.updateMany({ where: { reportId, revokedAt: null }, data: { revokedAt: new Date() } });
     const after = await tx.report.update({ where: { id: reportId }, data: { status: "RETURNED", returnReason: reason, reviewedById: actor.id, reviewedAt: new Date() }, include });
     if (r.type === "FINAL" && claim.status === "PENDING_SIGNOFF") {
       await moveClaimStatus(tx, actor, claimId, "FINAL_REPORT_DRAFTED", { reason, ipAddress: ip, viaReport: true });
@@ -357,8 +404,16 @@ export async function reportPdf(actor: AuthUser, claimId: number, reportId: numb
   }
   if (actor.role === "INSURER") throw notFound("Report");
   const model = r.status === "SUBMITTED" && r.figures ? revive(r.figures as unknown as Snapshot) : (await prisma.$transaction((tx) => snapshot(tx, claimId, r.type, r.body as Body))).model;
-  const data = await buildReportPdf({ ...model, firm: firm(), version: r.version, approved: false, date: new Date(), approver: null });
+  const data = await renderReportPdf({ ...model, firm: firm(), version: r.version, approved: false, date: new Date(), approver: null, approvers: [], approvalTier: r.status === "SUBMITTED" && r.approvalTierLabel ? { label: r.approvalTierLabel, requiredApprovals: r.requiredApprovals } : null });
   return { data, fileName: `${name} DRAFT.pdf` };
+}
+
+/** The latest version of a report type the caller may see (insurers: the latest signed-off one). */
+export async function reportPdfByType(actor: AuthUser, claimId: number, type: ReportType) {
+  await findScopedClaim(actor, claimId);
+  const r = await prisma.report.findFirst({ where: { claimId, type, ...(actor.role === "INSURER" ? { status: "APPROVED" } : {}) }, orderBy: { version: "desc" } });
+  if (!r) throw notFound("Report");
+  return reportPdf(actor, claimId, r.id);
 }
 
 /** Used by the seed to sign off reports with the same code path as the app. */

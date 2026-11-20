@@ -47,6 +47,7 @@ async function wipe() {
   // Children first.
   await prisma.auditLog.deleteMany();
   await prisma.feeNote.deleteMany();
+  await prisma.reportApproval.deleteMany();
   await prisma.report.deleteMany();
   await prisma.valuationItem.deleteMany();
   await prisma.evidenceFile.deleteMany();
@@ -55,6 +56,7 @@ async function wipe() {
   await prisma.claim.deleteMany();
   await prisma.claimSequence.deleteMany();
   await prisma.documentSequence.deleteMany();
+  await prisma.policyCoInsurer.deleteMany();
   await prisma.policy.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.user.deleteMany();
@@ -201,6 +203,17 @@ async function main() {
     });
     policies.set(p.no, created.id);
   }
+  // The large oil and gas risk is co-insured: Niger Delta General leads with 60%, the other two follow.
+  await prisma.policy.update({
+    where: { id: policies.get("NDG/ONG/2026/000041")! },
+    data: {
+      leadSharePercent: "60.00",
+      coInsurers: { create: [
+        { organisationId: lagoon.id, insurerName: lagoon.name, sharePercent: "25.00", sortOrder: 0 },
+        { organisationId: sahel.id, insurerName: sahel.name, sharePercent: "15.00", sortOrder: 1 },
+      ] },
+    },
+  });
 
   // --- Claims ---
   interface ClaimSeed {
@@ -508,7 +521,7 @@ async function seedDocuments(claims: Array<{ id: number; seed: { status: ClaimSt
 
     const prelimAt = when("PRELIM_REPORT_SUBMITTED");
     await prisma.report.create({
-      data: { claimId: id, type: "PRELIMINARY", status: "APPROVED", body: prelimBody, draftedById: drafter, submittedAt: prelimAt, reviewedById: principalId, reviewedAt: prelimAt, ...(await approve("PRELIMINARY", prelimBody, prelimAt)) },
+      data: { claimId: id, type: "PRELIMINARY", status: "APPROVED", body: prelimBody, draftedById: drafter, submittedAt: prelimAt, reviewedById: principalId, reviewedAt: prelimAt, ...(await approve("PRELIMINARY", prelimBody, prelimAt)), approvals: { create: { approvedById: principalId, createdAt: prelimAt } } },
     });
 
     if (at(seed.status) < at("FINAL_REPORT_DRAFTED")) continue;
@@ -536,7 +549,7 @@ async function seedDocuments(claims: Array<{ id: number; seed: { status: ClaimSt
     // Settled: signed off the day before settlement, then billed.
     const signedAt = new Date(when("SETTLED").getTime() - 86_400_000);
     await prisma.report.create({
-      data: { claimId: id, type: "FINAL", status: "APPROVED", body: finalBody, draftedById: drafter, submittedAt, reviewedById: principalId, reviewedAt: signedAt, ...(await approve("FINAL", finalBody, signedAt)) },
+      data: { claimId: id, type: "FINAL", status: "APPROVED", body: finalBody, draftedById: drafter, submittedAt, reviewedById: principalId, reviewedAt: signedAt, ...(await approve("FINAL", finalBody, signedAt)), approvalTierLabel: "Standard", approvals: { create: { approvedById: principalId, createdAt: signedAt } } },
     });
     if (!seed.fee) continue;
     feeNo += 1;

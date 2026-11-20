@@ -18,11 +18,17 @@ export interface ReportPdfModel {
     initialReserve: string | null;
   };
   policy: { insuredName: string; policyNumber: string; naicomUid: string; className: string; period: string; sumInsured: string; excess: string };
-  insurer: { name: string; address: string | null };
+  /** sharePercent and the co-insurance fields are absent from snapshots frozen before they existed. */
+  insurer: { name: string; address: string | null; sharePercent?: string };
+  coInsurers?: Array<{ name: string; role: "LEAD" | "FOLLOWER"; sharePercent: string }>;
+  coAdjuster?: { firmName: string; naicomNo: string | null; splitPercent: string | null } | null;
   broker: string | null;
   adjuster: { fullName: string; qualification: string | null; licence: string | null } | null;
   approver: { fullName: string; qualification: string | null; approvedAt: Date } | null;
-  inspection: { completedAt: Date | null; gps: string | null; causeVerified: boolean; liabilityConfirmed: boolean; thirdParty: boolean } | null;
+  /** Every principal who signed off (the approval matrix may need more than one). */
+  approvers?: Array<{ fullName: string; qualification: string | null; approvedAt: Date }>;
+  approvalTier?: { label: string; requiredApprovals: number } | null;
+  inspection: { completedAt: Date | null; visitedOn?: string | null; gps: string | null; causeVerified: boolean; liabilityConfirmed: boolean; thirdParty: boolean } | null;
   sections: Array<{ key: string; title: string; text: string }>;
   valuation?: { items: Array<{ description: string; category: string; claimed: string; assessed: string; deductions: string; net: string; salvage: boolean }>; settlement: Settlement; valueAtRisk: string | null };
 }
@@ -127,7 +133,7 @@ export async function buildReportPdf(m: ReportPdfModel): Promise<Buffer> {
   };
   sign(MARGIN, "Prepared by", m.adjuster ? [m.adjuster.fullName, m.adjuster.qualification].filter(Boolean).join(", ") : "-", `Loss Adjuster${m.adjuster?.licence ? ` · ${m.adjuster.licence}` : ""}`, "");
   const afterLeft = doc.y;
-  sign(MARGIN + colW + 20, "Approved by", m.approver ? [m.approver.fullName, m.approver.qualification].filter(Boolean).join(", ") : "Awaiting approval", "Principal Adjuster", m.approver ? `Signed off electronically on ${longDate(m.approver.approvedAt)}` : "");
+  sign(MARGIN + colW + 20, "Approved by", m.approver ? (m.approvers?.length ? m.approvers : [m.approver]).map((a) => [a.fullName, a.qualification].filter(Boolean).join(", ")).join("; ") : "Awaiting approval", "Principal Adjuster", m.approver ? `Signed off electronically on ${longDate(m.approver.approvedAt)}` : "");
   doc.y = Math.max(afterLeft, doc.y);
 
   finish(doc, `${m.firm.name} · ${m.claim.reference} · ${name}${m.version > 1 ? ` v${m.version}` : ""}`, m.approved ? undefined : "DRAFT");

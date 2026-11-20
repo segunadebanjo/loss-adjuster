@@ -1,4 +1,4 @@
-import { ClipboardList, FilePlus2, LayoutDashboard, Users, type LucideIcon } from "lucide-react";
+import { ClipboardList, FilePlus2, LayoutDashboard, ShieldCheck, Users, type LucideIcon } from "lucide-react";
 import type { Role } from "@/shared/api/types";
 
 export interface NavItem {
@@ -15,6 +15,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/claims", label: "Claims", icon: ClipboardList, roles: ["ADMIN", "ADJUSTER", "INSURER"], labelFor: { ADJUSTER: "My claims" } },
   { to: "/intake", label: "New instruction", icon: FilePlus2, roles: ["ADMIN"] },
   { to: "/users", label: "Users & adjusters", icon: Users, roles: ["ADMIN"] },
+  { to: "/approval-matrix", label: "Approval matrix", icon: ShieldCheck, roles: ["ADMIN"] },
 ];
 
 export const ROLE_LABEL: Record<Role, string> = {

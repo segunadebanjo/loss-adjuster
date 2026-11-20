@@ -38,6 +38,12 @@ const schema = z.object({
   FIRM_ACCOUNT_NUMBER: z.string().default("[0000000000]"),
   /** Path to a PNG or JPG logo, relative to the server folder. Optional. */
   FIRM_LOGO_PATH: z.string().default(""),
+  /** Where the Handlebars PDF templates live, relative to the server folder. */
+  TEMPLATES_DIR: z.string().default("src/templates"),
+  /** html = the templates through headless Chrome (falls back to PDFKit while a template is missing); pdfkit = never Chrome. */
+  PDF_RENDERER: z.enum(["html", "pdfkit"]).default("html"),
+  /** Chrome to use instead of the one Puppeteer downloads (e.g. a system Chromium). */
+  PUPPETEER_EXECUTABLE_PATH: z.string().default(""),
   VAT_RATE: z.coerce.number().min(0).max(100).default(7.5),
   WHT_RATE: z.coerce.number().min(0).max(100).default(10),
 });

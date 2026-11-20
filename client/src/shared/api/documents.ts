@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { AuditEntry, FeeNote, Report, ReportList, ReportType } from "./types";
+import type { ApprovalTier, AuditEntry, FeeNote, Report, ReportList, ReportType } from "./types";
 
 const base = (claimId: number) => `/claims/${claimId}`;
 
@@ -35,6 +35,8 @@ export const documentsApi = {
   approveReport: (claimId: number, id: number, note?: string) => api.post<{ data: Report }>(`${base(claimId)}/reports/${id}/approve`, { note }).then((r) => r.data.data),
   returnReport: (claimId: number, id: number, reason: string) => api.post<{ data: Report }>(`${base(claimId)}/reports/${id}/return`, { reason }).then((r) => r.data.data),
   reportPdfUrl: (claimId: number, id: number) => `${base(claimId)}/reports/${id}/pdf`,
+  /** The latest report of a type: signed off once its approval tier is met, otherwise a DRAFT / PREVIEW. */
+  reportPdfByTypeUrl: (claimId: number, type: ReportType) => `${base(claimId)}/reports/${type.toLowerCase()}/pdf`,
 
   feeNotes: (claimId: number) => api.get<{ data: FeeNote[]; rates: { vat: string; wht: string } }>(`${base(claimId)}/fee-notes`).then((r) => r.data),
   createFeeNote: (claimId: number, body: object) => api.post<{ data: FeeNote }>(`${base(claimId)}/fee-notes`, body).then((r) => r.data.data),
@@ -43,6 +45,11 @@ export const documentsApi = {
   markPaid: (claimId: number, id: number, body: { paidOn: string; reference: string }) => api.post<{ data: FeeNote }>(`${base(claimId)}/fee-notes/${id}/paid`, body).then((r) => r.data.data),
   cancelFeeNote: (claimId: number, id: number, reason: string) => api.post<{ data: FeeNote }>(`${base(claimId)}/fee-notes/${id}/cancel`, { reason }).then((r) => r.data.data),
   feeNotePdfUrl: (claimId: number, id: number) => `${base(claimId)}/fee-notes/${id}/pdf`,
+  /** The claim's current fee note (latest issued, else the latest draft as a preview). */
+  currentFeeNotePdfUrl: (claimId: number) => `${base(claimId)}/fee-note/pdf`,
+
+  approvalTiers: () => api.get<{ data: ApprovalTier[] }>("/approval-tiers").then((r) => r.data.data),
+  saveApprovalTiers: (tiers: ApprovalTier[]) => api.put<{ data: ApprovalTier[] }>("/approval-tiers", { tiers }).then((r) => r.data.data),
 
   audit: (claimId: number) => api.get<{ data: AuditEntry[] }>(`${base(claimId)}/audit`).then((r) => r.data.data),
   firm: () => api.get<{ name: string; placeholders: boolean }>("/meta/firm").then((r) => r.data),
@@ -53,4 +60,5 @@ export const documentKeys = {
   feeNotes: (id: number) => ["claims", "detail", id, "fee-notes"] as const,
   audit: (id: number) => ["claims", "detail", id, "audit"] as const,
   firm: ["firm"] as const,
+  approvalTiers: ["approval-tiers"] as const,
 };

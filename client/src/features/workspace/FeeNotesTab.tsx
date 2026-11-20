@@ -119,10 +119,25 @@ export function FeeNotesTab({ claim, readOnly }: { claim: ClaimDetail; readOnly?
   if (isError || !data) return <ErrorNote message={errorMessage(error)} />;
   const pdf = (n: FeeNote, mode: "open" | "download") =>
     openPdf(documentsApi.feeNotePdfUrl(claim.id, n.id), `${n.feeNoteNo ?? "Fee note DRAFT"}.pdf`, mode).catch((e) => setPdfErr(errorMessage(e)));
+  // The claim's current fee note: the latest issued one, else (staff) the latest draft as a preview.
+  const current = data.data.find((n) => n.status === "ISSUED" || n.status === "PAID") ?? data.data.find((n) => n.status === "DRAFT");
+  const downloadCurrent = () =>
+    openPdf(documentsApi.currentFeeNotePdfUrl(claim.id), `${current?.feeNoteNo ?? "Fee note DRAFT"}.pdf`, "download").catch((e) => setPdfErr(errorMessage(e)));
 
   return (
     <div className="space-y-4">
-      {principal && <div className="flex justify-end"><Button onClick={() => setEditing("new")}><Plus className="size-4" /> New fee note</Button></div>}
+      {(principal || current) && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {current && <Button variant="secondary" onClick={() => void downloadCurrent()}><Download className="size-4" /> Download Fee Note PDF{current.status === "DRAFT" ? " (draft)" : ""}</Button>}
+          {principal && <Button onClick={() => setEditing("new")}><Plus className="size-4" /> New fee note</Button>}
+        </div>
+      )}
+      {claim.policy.coInsurers?.length > 0 && (
+        <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+          Co-insured: the fee note PDF carries a debit schedule splitting it between {claim.policy.insurerName} ({Number(claim.policy.leadSharePercent)}%)
+          {claim.policy.coInsurers.map((c) => `, ${c.insurerName} (${Number(c.sharePercent)}%)`).join("")}.
+        </p>
+      )}
       {pdfErr && <ErrorNote message={pdfErr} />}
       {data.data.length === 0 ? (
         <Card><EmptyState title="No fee notes yet">{principal ? "Raise the adjuster's fee note once the final report is signed off (or an interim one before)." : "Fee notes appear here once issued."}</EmptyState></Card>
@@ -148,7 +163,7 @@ export function FeeNotesTab({ claim, readOnly }: { claim: ClaimDetail; readOnly?
                 {n.notes && <p>{n.notes}</p>}
                 <div className="flex flex-wrap gap-2 pt-2">
                   <Button variant="secondary" size="sm" onClick={() => void pdf(n, "open")}><Eye className="size-3.5" /> {n.status === "DRAFT" ? "Preview" : "View PDF"}</Button>
-                  {n.status !== "DRAFT" && <Button variant="secondary" size="sm" onClick={() => void pdf(n, "download")}><Download className="size-3.5" /> Download</Button>}
+                  <Button variant="secondary" size="sm" onClick={() => void pdf(n, "download")}><Download className="size-3.5" /> {n.status === "DRAFT" ? "Download preview" : "Download Fee Note PDF"}</Button>
                   {principal && n.status === "DRAFT" && (
                     <>
                       <Button variant="secondary" size="sm" onClick={() => setEditing(n)}>Edit</Button>

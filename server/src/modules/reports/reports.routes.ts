@@ -31,7 +31,14 @@ reportRoutes.post("/:reportId/return", requireRole("ADMIN"), async (req: Request
   const { claimId, reportId } = ids(req);
   res.json({ data: await svc.returnReport(currentUser(req), claimId, reportId, svc.returnInput.parse(req.body).reason, req.ip ?? null) });
 });
+// /:reportId/pdf takes a report id, or a type ("preliminary" / "final") for the latest version of that report:
+// the signed-off PDF once its approval tier is met, otherwise (staff only) a DRAFT / PREVIEW.
 reportRoutes.get("/:reportId/pdf", async (req: Request, res: Response) => {
-  const { claimId, reportId } = ids(req);
-  sendPdf(res, await svc.reportPdf(currentUser(req), claimId, reportId), req.query.inline === "1");
+  const claimId = zId.parse(req.params.claimId);
+  const key = String(req.params.reportId).toLowerCase();
+  const user = currentUser(req);
+  const pdf = key === "preliminary" || key === "final"
+    ? await svc.reportPdfByType(user, claimId, key === "final" ? "FINAL" : "PRELIMINARY")
+    : await svc.reportPdf(user, claimId, zId.parse(req.params.reportId));
+  sendPdf(res, pdf, req.query.inline === "1");
 });

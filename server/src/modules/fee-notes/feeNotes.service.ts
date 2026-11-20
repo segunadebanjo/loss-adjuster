@@ -10,7 +10,8 @@ import { computeFeeNote } from "../../lib/feeNote.js";
 import { firm } from "../../lib/firm.js";
 import { fromKobo, moneyOut, toKobo } from "../../lib/money.js";
 import { zDate, zMoney, zRequiredText, zText } from "../../lib/validation.js";
-import { buildFeeNotePdf } from "../../pdf/feeNotePdf.js";
+import { renderFeeNotePdf } from "../../pdf/pdfGenerator.js";
+import { nairaInWords } from "../../lib/amountInWords.js";
 import type { AuthUser } from "../../middleware/authenticate.js";
 import { POLICY_TYPE_LABELS, findScopedClaim } from "../claims/claims.service.js";
 
@@ -123,9 +124,10 @@ export async function updateFeeNote(actor: AuthUser, claimId: number, id: number
 }
 
 async function pdfFor(tx: Tx | typeof prisma, f: FeeNote, date: Date, status: FeeNote["status"], number: string) {
-  const claim = await tx.claim.findUniqueOrThrow({ where: { id: f.claimId }, include: { policy: { include: { insurer: true } } } });
+  const claim = await tx.claim.findUniqueOrThrow({ where: { id: f.claimId }, include: { policy: { include: { insurer: true, coInsurers: { orderBy: { sortOrder: "asc" } } } } } });
+  const p = claim.policy;
   const fig = computeFeeNote({ professionalFee: String(f.professionalFee), expenses: f.expenses as Expense[], vatRate: String(f.vatRate), whtRate: String(f.whtRate) });
-  return buildFeeNotePdf({
+  return renderFeeNotePdf({
     firm: firm(),
     number,
     status,
@@ -142,6 +144,11 @@ async function pdfFor(tx: Tx | typeof prisma, f: FeeNote, date: Date, status: Fe
     expenses: f.expenses as Expense[],
     figures: fig,
     notes: f.notes,
+    amountInWords: nairaInWords(fig.netPayable),
+    coInsurers: p.coInsurers.length
+      ? [{ name: p.insurerName, role: "LEAD", sharePercent: p.leadSharePercent.toFixed(2) }, ...p.coInsurers.map((c) => ({ name: c.insurerName, role: "FOLLOWER" as const, sharePercent: c.sharePercent.toFixed(2) }))]
+      : [],
+    coAdjuster: claim.coAdjusterFirm ? { firmName: claim.coAdjusterFirm, naicomNo: claim.coAdjusterNaicomNo, splitPercent: claim.coAdjusterSplitPercent?.toFixed(2) ?? null } : null,
   });
 }
 
@@ -202,6 +209,19 @@ export async function feeNotePdf(actor: AuthUser, claimId: number, id: number) {
     throw new AppError(500, "PDF_ALTERED", "The stored PDF no longer matches the one that was issued. It has not been sent.");
   }
   return { data, fileName: `${f.feeNoteNo}.pdf` };
+}
+
+/**
+ * GET /claims/:claimId/fee-note/pdf: the claim's current fee note. Insurers get the latest issued or paid one; staff
+ * get that, else the latest draft as a DRAFT / PREVIEW. ?feeNoteId= picks a particular note.
+ */
+export async function currentFeeNotePdf(actor: AuthUser, claimId: number, feeNoteId?: number) {
+  if (feeNoteId) return feeNotePdf(actor, claimId, feeNoteId);
+  await findScopedClaim(actor, claimId);
+  const live = await prisma.feeNote.findFirst({ where: { claimId, status: { in: ["ISSUED", "PAID"] } }, orderBy: [{ issuedAt: "desc" }, { id: "desc" }] });
+  const pick = live ?? (actor.role === "INSURER" ? null : await prisma.feeNote.findFirst({ where: { claimId, status: "DRAFT" }, orderBy: { id: "desc" } }));
+  if (!pick) throw notFound("Fee note");
+  return feeNotePdf(actor, claimId, pick.id);
 }
 
 export { include as feeNoteInclude };

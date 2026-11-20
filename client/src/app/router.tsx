@@ -5,6 +5,7 @@ import { ClaimsListPage } from "@/features/claims/ClaimsListPage";
 import { ClaimDetailPage } from "@/features/claims/ClaimDetailPage";
 import { IntakePage } from "@/features/intake/IntakePage";
 import { UsersPage } from "@/features/users/UsersPage";
+import { ApprovalMatrixPage } from "@/features/settings/ApprovalMatrixPage";
 import { AppShell } from "./AppShell";
 import { RequireAuth, RequireRole } from "./guards";
 
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
           { path: "claims/:id", element: <ClaimDetailPage /> },
           { path: "intake", element: <RequireRole roles={["ADMIN"]}><IntakePage /></RequireRole> },
           { path: "users", element: <RequireRole roles={["ADMIN"]}><UsersPage /></RequireRole> },
+          { path: "approval-matrix", element: <RequireRole roles={["ADMIN"]}><ApprovalMatrixPage /></RequireRole> },
         ],
       },
     ],

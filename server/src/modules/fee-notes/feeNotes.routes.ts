@@ -36,3 +36,10 @@ feeNoteRoutes.get("/:feeNoteId/pdf", async (req: Request, res: Response) => {
   const { claimId, id } = ids(req);
   sendPdf(res, await svc.feeNotePdf(currentUser(req), claimId, id), req.query.inline === "1");
 });
+
+// Mounted at /claims/:claimId/fee-note: the claim's current fee note as a PDF (see currentFeeNotePdf).
+export const feeNoteDocumentRoutes = Router({ mergeParams: true });
+feeNoteDocumentRoutes.get("/pdf", async (req: Request, res: Response) => {
+  const feeNoteId = req.query.feeNoteId ? zId.parse(req.query.feeNoteId) : undefined;
+  sendPdf(res, await svc.currentFeeNotePdf(currentUser(req), zId.parse(req.params.claimId), feeNoteId), req.query.inline === "1");
+});

@@ -34,17 +34,41 @@ function useRefresh(claimId: number) {
   };
 }
 
+/**
+ * The latest version of the report as a PDF: the signed-off file once its approval tier is met, otherwise a
+ * DRAFT / PREVIEW (the server decides, so a final PDF can't be had before sign-off).
+ */
 function PdfButtons({ claimId, report, claimRef }: { claimId: number; report: Report; claimRef: string }) {
   const [err, setErr] = useState<string | null>(null);
-  const url = documentsApi.reportPdfUrl(claimId, report.id);
-  const name = `${report.type === "FINAL" ? "Final" : "Preliminary"} report ${claimRef}${report.version > 1 ? ` v${report.version}` : ""}${report.status === "APPROVED" ? "" : " DRAFT"}.pdf`;
+  const url = documentsApi.reportPdfByTypeUrl(claimId, report.type);
+  const final = report.status === "APPROVED";
+  const name = `${report.type === "FINAL" ? "Final" : "Preliminary"} report ${claimRef}${report.version > 1 ? ` v${report.version}` : ""}${final ? "" : " DRAFT"}.pdf`;
   const run = (mode: "open" | "download") => openPdf(url, name, mode).catch((e) => setErr(errorMessage(e)));
   return (
     <>
-      <Button variant="secondary" size="sm" onClick={() => void run("open")}><Eye className="size-3.5" /> {report.status === "APPROVED" ? "View PDF" : "Preview PDF"}</Button>
-      {report.status === "APPROVED" && <Button variant="secondary" size="sm" onClick={() => void run("download")}><Download className="size-3.5" /> Download</Button>}
+      <Button variant="secondary" size="sm" onClick={() => void run("open")}><Eye className="size-3.5" /> {final ? "View Report PDF" : "Preview Report PDF"}</Button>
+      <Button variant="secondary" size="sm" onClick={() => void run("download")}><Download className="size-3.5" /> {final ? "Download Report PDF" : "Download preview"}</Button>
+      {!final && <span className="self-center text-xs text-slate-500">Marked DRAFT / PREVIEW until signed off</span>}
       {err && <p className="w-full text-xs text-red-700">{err}</p>}
     </>
+  );
+}
+
+/** "Sign-offs: 1 of 2 (Large loss)", with who has signed. */
+function SignOffProgress({ report }: { report: Report }) {
+  if (report.requiredApprovals <= 1 && !report.approvals.length) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 p-3 text-sm">
+      <p className="font-medium">
+        Sign-offs: {report.approvals.length} of {report.requiredApprovals}
+        {report.approvalTier && <span className="font-normal text-slate-500"> · approval tier "{report.approvalTier}"</span>}
+      </p>
+      {report.approvals.length > 0 && (
+        <ul className="mt-1 text-xs text-slate-600">
+          {report.approvals.map((a) => <li key={a.approvedBy.id}>{a.approvedBy.fullName}, {formatDateTime(a.at)}</li>)}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -90,6 +114,8 @@ function SignOff({ claimId, report }: { claimId: number; report: Report }) {
   const refresh = useRefresh(claimId);
   const { user } = useAuth();
   const own = report.draftedBy.id === user?.id;
+  const signed = report.approvals.some((a) => a.approvedBy.id === user?.id);
+  const lastNeeded = report.approvals.length + 1 >= report.requiredApprovals;
   const [dialog, setDialog] = useState<null | "approve" | "return">(null);
   const [text, setText] = useState("");
   const approve = useMutation({ mutationFn: () => documentsApi.approveReport(claimId, report.id, text || undefined), onSuccess: () => { refresh(); setDialog(null); } });
@@ -97,7 +123,11 @@ function SignOff({ claimId, report }: { claimId: number; report: Report }) {
   const m = dialog === "approve" ? approve : ret;
   return (
     <>
-      <Button onClick={() => { setText(""); setDialog("approve"); }}><ShieldCheck className="size-4" /> Sign off</Button>
+      {signed ? (
+        <span className="self-center text-xs text-slate-500">You have signed off. Waiting for another principal adjuster.</span>
+      ) : (
+        <Button onClick={() => { setText(""); setDialog("approve"); }}><ShieldCheck className="size-4" /> Sign off</Button>
+      )}
       <Button variant="secondary" onClick={() => { setText(""); setDialog("return"); }}><RotateCcw className="size-4" /> Return</Button>
       <Modal
         open={!!dialog}
@@ -106,7 +136,12 @@ function SignOff({ claimId, report }: { claimId: number; report: Report }) {
         footer={<><Button variant="secondary" onClick={() => setDialog(null)}>Cancel</Button><Button loading={m.isPending} onClick={() => m.mutate()}>{dialog === "approve" ? "Sign off" : "Return"}</Button></>}
       >
         <div className="space-y-4 text-sm">
-          {dialog === "approve" ? (
+          {dialog === "approve" && !lastNeeded ? (
+            <p className="text-slate-600">
+              This report needs {report.requiredApprovals} sign-offs (approval tier "{report.approvalTier}"). Yours is recorded now; the PDF is
+              produced and released to the insurer when the last principal adjuster signs off.
+            </p>
+          ) : dialog === "approve" ? (
             <p className="text-slate-600">
               The PDF is generated now, with your name as approver, and frozen: it can't be changed afterwards. The insurer can download it straight away.
               {report.type === "PRELIMINARY" ? " The claim moves to \"Preliminary report submitted\"." : " The claim can then be marked settled."}
@@ -116,7 +151,7 @@ function SignOff({ claimId, report }: { claimId: number; report: Report }) {
           )}
           {m.isError && <ErrorNote message={errorMessage(m.error)} />}
           {(dialog === "return" || own) && (
-            <Field label={dialog === "return" ? "What needs to change" : "Why you are signing off your own report"} required hint={dialog === "approve" ? "Allowed only when no other principal adjuster is active. Recorded on the report." : undefined}>
+            <Field label={dialog === "return" ? "What needs to change" : "Why you are signing off your own report"} required hint={dialog === "approve" ? "Allowed only when there aren't enough other active principal adjusters. Recorded on the report." : undefined}>
               {(id, d) => <Textarea id={id} aria-describedby={d} rows={3} value={text} onChange={(e) => setText(e.target.value)} />}
             </Field>
           )}
@@ -155,6 +190,7 @@ function ReportCard({ claim, type, reports, sections, canStart }: { claim: Claim
               <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
               <div className="min-w-0">
                 <p>Signed off and available to the insurer.</p>
+                {current.approvals.length > 1 && <p className="mt-1 text-xs">Signed off by {current.approvals.map((a) => a.approvedBy.fullName).join(" and ")}{current.approvalTier ? ` (approval tier "${current.approvalTier}")` : ""}.</p>}
                 {current.selfApprovalNote && <p className="mt-1 text-xs">Signed off by its author: {current.selfApprovalNote}</p>}
                 <p className="mt-1 truncate font-mono text-[11px] text-emerald-900/70" title={current.pdfSha256 ?? ""}>SHA-256 {current.pdfSha256}</p>
               </div>
@@ -162,6 +198,7 @@ function ReportCard({ claim, type, reports, sections, canStart }: { claim: Claim
           ) : current.status === "SUBMITTED" ? (
             <div className="space-y-3">
               <p className="rounded-lg bg-orange-50 p-3 text-sm text-orange-900">With the principal adjuster for sign-off. The text and figures are frozen as submitted.</p>
+              <SignOffProgress report={current} />
               <details className="text-sm">
                 <summary className="cursor-pointer text-slate-600">Read the submitted text</summary>
                 <div className="mt-3 space-y-3">

@@ -11,7 +11,7 @@ import { formatNaira } from "@/shared/lib/money";
 import { POLICY_TYPE_LABEL, formatDate, formatDateTime } from "@/shared/lib/claims";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 import { Button, Card, ErrorNote, Spinner } from "@/shared/components/ui";
-import { AssignDialog, DeleteClaimDialog, EditClaimDialog, TransitionDialog } from "./ClaimDialogs";
+import { AssignDialog, CoInsuranceDialog, DeleteClaimDialog, EditClaimDialog, TransitionDialog } from "./ClaimDialogs";
 import { InspectionTab } from "@/features/workspace/InspectionTab";
 import { EvidenceTab } from "@/features/workspace/EvidenceTab";
 import { ScheduleOfLossTab } from "@/features/workspace/ScheduleOfLossTab";
@@ -47,6 +47,9 @@ function excessRule(p: ClaimDetail["policy"]) {
 }
 
 function Overview({ c, staff }: { c: ClaimDetail; staff: boolean }) {
+  const { user } = useAuth();
+  const [coIns, setCoIns] = useState(false);
+  const canEditPolicy = user?.role === "ADMIN" && c.permissions.edit && c.status !== "SETTLED" && c.status !== "REPUDIATED";
   return (
     <div className="grid gap-6 xl:grid-cols-3">
       <div className="space-y-6 xl:col-span-2">
@@ -68,16 +71,30 @@ function Overview({ c, staff }: { c: ClaimDetail; staff: boolean }) {
             {c.settledAmount && <Row label="Settled for"><span className="font-medium tabular-nums">{formatNaira(c.settledAmount)}</span></Row>}
             {staff && <Row label="Adjuster's fee"><span className="tabular-nums">{formatNaira(c.adjusterFee)}</span></Row>}
             {c.repudiationReason && <Row label="Repudiated because">{c.repudiationReason}</Row>}
+            {c.coAdjuster && (
+              <Row label="Co-adjuster">
+                {c.coAdjuster.firm}
+                {c.coAdjuster.naicomNo ? ` (${c.coAdjuster.naicomNo})` : ""}
+                {c.coAdjuster.splitPercent ? ` · ${Number(c.coAdjuster.splitPercent)}% of the fee` : ""}
+              </Row>
+            )}
           </dl>
         </Card>
-        <Card title="Policy">
+        {coIns && <CoInsuranceDialog claim={c} open onClose={() => setCoIns(false)} />}
+        <Card title="Policy" actions={canEditPolicy && <Button variant="secondary" size="sm" onClick={() => setCoIns(true)}>Co-insurance</Button>}>
           <dl className="divide-y divide-slate-50">
             <Row label="Insured">{c.policy.insuredName}</Row>
             {staff && <Row label="Contact">{c.policy.insuredContact}</Row>}
             <Row label="Policy no.">{c.policy.policyNumber}</Row>
             <Row label="NAICOM UID"><span className="font-mono text-xs">{c.policy.naicomUid}</span></Row>
             <Row label="Class">{POLICY_TYPE_LABEL[c.policy.policyType]}</Row>
-            <Row label="Insurer">{c.policy.insurerName}</Row>
+            <Row label="Insurer">
+              {c.policy.insurerName}
+              {c.policy.coInsurers?.length > 0 && <span className="text-slate-500"> (lead, {Number(c.policy.leadSharePercent)}%)</span>}
+            </Row>
+            {c.policy.coInsurers?.length > 0 && (
+              <Row label="Co-insurers">{c.policy.coInsurers.map((x) => `${x.insurerName} (${Number(x.sharePercent)}%)`).join(", ")}</Row>
+            )}
             <Row label="Broker">{c.policy.brokerName ?? "Direct"}</Row>
             <Row label="Sum insured"><span className="tabular-nums">{formatNaira(c.policy.sumInsured)}</span></Row>
             <Row label="Excess">{excessRule(c.policy)}</Row>

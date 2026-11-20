@@ -45,6 +45,9 @@ export interface Policy {
   excessPercentage: string;
   startDate: string;
   endDate: string;
+  /** The lead insurer's share; 100 unless co-insured. */
+  leadSharePercent: string;
+  coInsurers: Array<{ organisationId: number; insurerName: string; sharePercent: string }>;
 }
 
 export interface ClaimListItem {
@@ -89,6 +92,7 @@ export interface ClaimDetail extends Omit<ClaimListItem, "policy" | "assignedAdj
   valueAtRisk?: string | null;
   applyAverage?: boolean;
   repudiationReason: string | null;
+  coAdjuster?: { firm: string; naicomNo: string | null; splitPercent: string | null } | null;
   closedAt: string | null;
   createdAt: string;
   policy: Policy;
@@ -248,6 +252,18 @@ export interface Report {
   body?: { sections: Record<string, string> };
   returnReason?: string | null;
   selfApprovalNote?: string | null;
+  /** Sign-offs the approval matrix asks for, fixed when the report was submitted. */
+  requiredApprovals: number;
+  approvalTier: string | null;
+  approvals: Array<{ approvedBy: { id: number; fullName: string }; at: string; note?: string | null }>;
+  /** On an approve response: false while more sign-offs are needed. */
+  signOffComplete?: boolean;
+}
+
+export interface ApprovalTier {
+  label: string;
+  minAmount: string;
+  requiredApprovals: number;
 }
 export interface ReportList {
   data: Report[];

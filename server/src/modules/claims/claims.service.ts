@@ -133,7 +133,7 @@ export async function getClaim(user: AuthUser, id: number) {
   const c = await prisma.claim.findUniqueOrThrow({
     where: { id },
     include: {
-      policy: true,
+      policy: { include: { coInsurers: { orderBy: { sortOrder: "asc" } } } },
       assignedAdjuster: { select: { id: true, fullName: true, email: true, phone: true, naicomLicenseNo: true, ciiQualification: true } },
       statusHistory: { orderBy: { changedAt: "asc" }, include: { changedBy: { select: { id: true, fullName: true } } } },
       inspections: { where: { deletedAt: null }, orderBy: { scheduledDate: "asc" }, select: { id: true, scheduledDate: true, completedDate: true } },
@@ -176,6 +176,7 @@ export async function getClaim(user: AuthUser, id: number) {
     initialReserve: moneyOut(c.initialReserve),
     ...figuresFor(user, c),
     repudiationReason: c.repudiationReason,
+    coAdjuster: c.coAdjusterFirm ? { firm: c.coAdjusterFirm, naicomNo: c.coAdjusterNaicomNo, splitPercent: c.coAdjusterSplitPercent?.toFixed(2) ?? null } : null,
     closedAt: c.closedAt?.toISOString() ?? null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
@@ -271,7 +272,7 @@ export async function intake(actor: AuthUser, input: IntakeInput, ip: string | n
   return getClaim(actor, created.id);
 }
 
-const UPDATE_FIELDS = ["insurerClaimNo", "dateOfLoss", "dateInstructed", "lossState", "lossLga", "lossAddress", "incidentDescription", "initialReserve", "valueAtRisk", "applyAverage", "adjusterFee"] as const;
+const UPDATE_FIELDS = ["insurerClaimNo", "dateOfLoss", "dateInstructed", "lossState", "lossLga", "lossAddress", "incidentDescription", "initialReserve", "valueAtRisk", "applyAverage", "adjusterFee", "coAdjusterFirm", "coAdjusterNaicomNo", "coAdjusterSplitPercent"] as const;
 
 export async function updateClaim(actor: AuthUser, id: number, input: ClaimUpdate, ip: string | null) {
   if (actor.role === "INSURER") throw forbidden();
@@ -290,10 +291,16 @@ export async function updateClaim(actor: AuthUser, id: number, input: ClaimUpdat
     const dateInstructed = input.dateInstructed ?? dateOut(before.dateInstructed)!;
     if (dateOfLoss > dateInstructed) throw badRequest("The date of loss can't be after the instruction date.");
     if (dateInstructed > todayLagos()) throw badRequest("The instruction date can't be in the future.");
+    const firmAfter = input.coAdjusterFirm !== undefined ? input.coAdjusterFirm : before.coAdjusterFirm;
+    const splitAfter = input.coAdjusterSplitPercent !== undefined ? input.coAdjusterSplitPercent : before.coAdjusterSplitPercent;
+    if (!firmAfter && (input.coAdjusterNaicomNo || input.coAdjusterSplitPercent)) throw badRequest("Name the co-adjusting firm first.");
+    if (firmAfter && splitAfter != null && Number(splitAfter) >= 100) throw badRequest("The co-adjuster's share of the fee must be under 100%.");
     const after = await tx.claim.update({
       where: { id },
       data: {
         ...input,
+        // Removing the co-adjusting firm removes its details too.
+        ...(input.coAdjusterFirm === null ? { coAdjusterNaicomNo: null, coAdjusterSplitPercent: null } : {}),
         dateOfLoss: input.dateOfLoss ? dateIn(input.dateOfLoss) : undefined,
         dateInstructed: input.dateInstructed ? dateIn(input.dateInstructed) : undefined,
       },

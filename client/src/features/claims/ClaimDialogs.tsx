@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { claimsApi, queryKeys } from "@/shared/api/claims";
-import { errorMessage, fieldErrors } from "@/shared/api/client";
+import { api, errorMessage, fieldErrors } from "@/shared/api/client";
 import type { ClaimDetail, ClaimStatus } from "@/shared/api/types";
 import { moneyToApi, moneyToInput, todayLagos } from "@/shared/lib/claims";
 import { Button, ErrorNote, Field, Input, Modal, MoneyInput, Select, Textarea } from "@/shared/components/ui";
@@ -116,13 +116,21 @@ export function EditClaimDialog({ claim, open, onClose, principal }: { claim: Cl
     initialReserve: moneyToInput(claim.initialReserve),
     valueAtRisk: moneyToInput(claim.valueAtRisk),
     applyAverage: !!claim.applyAverage,
+    coAdjusterFirm: claim.coAdjuster?.firm ?? "",
+    coAdjusterNaicomNo: claim.coAdjuster?.naicomNo ?? "",
+    coAdjusterSplitPercent: claim.coAdjuster?.splitPercent ? String(Number(claim.coAdjuster.splitPercent)) : "",
   });
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }));
   const m = useMutation({
     mutationFn: () => {
-      const site = { lossLga: f.lossLga, lossAddress: f.lossAddress, incidentDescription: f.incidentDescription, valueAtRisk: moneyToApi(f.valueAtRisk), applyAverage: f.applyAverage };
+      // The value at risk and average are sent only when changed: they are locked while the claim is at sign-off.
+      const figuresChanged = moneyToApi(f.valueAtRisk) !== moneyToApi(moneyToInput(claim.valueAtRisk)) || f.applyAverage !== !!claim.applyAverage;
+      const site = { lossLga: f.lossLga, lossAddress: f.lossAddress, incidentDescription: f.incidentDescription, ...(figuresChanged ? { valueAtRisk: moneyToApi(f.valueAtRisk), applyAverage: f.applyAverage } : {}) };
       const body = principal
-        ? { ...site, insurerClaimNo: f.insurerClaimNo, dateOfLoss: f.dateOfLoss, dateInstructed: f.dateInstructed, lossState: f.lossState, initialReserve: moneyToApi(f.initialReserve) ?? "0" }
+        ? {
+            ...site, insurerClaimNo: f.insurerClaimNo, dateOfLoss: f.dateOfLoss, dateInstructed: f.dateInstructed, lossState: f.lossState, initialReserve: moneyToApi(f.initialReserve) ?? "0",
+            coAdjusterFirm: f.coAdjusterFirm, ...(f.coAdjusterFirm.trim() ? { coAdjusterNaicomNo: f.coAdjusterNaicomNo, coAdjusterSplitPercent: f.coAdjusterSplitPercent.trim() || null } : {}),
+          }
         : site;
       return claimsApi.update(claim.id, body);
     },
@@ -165,6 +173,14 @@ export function EditClaimDialog({ claim, open, onClose, principal }: { claim: Cl
           <input type="checkbox" checked={f.applyAverage} onChange={(e) => set({ applyAverage: e.target.checked })} className="size-4 accent-brand-600" />
           Apply the average (underinsurance) clause
         </label>
+        {principal && (
+          <fieldset className="grid gap-4 border-t border-slate-100 pt-4 sm:col-span-2 sm:grid-cols-3">
+            <legend className="mb-2 text-sm font-medium">Co-adjusting firm (if any)</legend>
+            <Field label="Firm" error={errs.coAdjusterFirm}>{(id) => <Input id={id} value={f.coAdjusterFirm} onChange={(e) => set({ coAdjusterFirm: e.target.value })} placeholder="Leave blank if none" />}</Field>
+            <Field label="NAICOM reg. no." error={errs.coAdjusterNaicomNo}>{(id) => <Input id={id} value={f.coAdjusterNaicomNo} disabled={!f.coAdjusterFirm.trim()} onChange={(e) => set({ coAdjusterNaicomNo: e.target.value })} />}</Field>
+            <Field label="Their share of the fee (%)" error={errs.coAdjusterSplitPercent}>{(id) => <Input id={id} inputMode="decimal" value={f.coAdjusterSplitPercent} disabled={!f.coAdjusterFirm.trim()} onChange={(e) => set({ coAdjusterSplitPercent: e.target.value.replace(/[^\d.]/g, "") })} placeholder="e.g. 30" />}</Field>
+          </fieldset>
+        )}
       </form>
     </Modal>
   );
@@ -189,6 +205,58 @@ export function DeleteClaimDialog({ claim, open, onClose }: { claim: ClaimDetail
       </p>
       {m.isError && <ErrorNote message={errorMessage(m.error)} className="mb-4" />}
       <Field label="Reason" required error={fieldErrors(m.error).reason}>{(id) => <Textarea id={id} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Logged twice" />}</Field>
+    </Modal>
+  );
+}
+
+/** The policy's co-insurers: the lead (the policy's insurer) keeps what the others don't take; shares add up to 100%. */
+export function CoInsuranceDialog({ claim, open, onClose }: { claim: ClaimDetail; open: boolean; onClose: () => void }) {
+  const saved = useClaimSaved(claim.id);
+  const qc = useQueryClient();
+  const { data: options } = useQuery({ queryKey: queryKeys.options, queryFn: claimsApi.options, enabled: open });
+  const [rows, setRows] = useState(() => claim.policy.coInsurers.map((c) => ({ organisationId: String(c.organisationId), sharePercent: String(Number(c.sharePercent)) })));
+  const followers = rows.reduce((a, r) => a + (Number(r.sharePercent) || 0), 0);
+  const lead = Math.round((100 - followers) * 100) / 100;
+  const m = useMutation({
+    mutationFn: () =>
+      api.patch(`/policies/${claim.policy.id}`, {
+        leadSharePercent: rows.length ? String(lead) : "100",
+        coInsurers: rows.map((r) => ({ organisationId: Number(r.organisationId), sharePercent: r.sharePercent || "0" })),
+      }),
+    onSuccess: async () => {
+      saved(await claimsApi.get(claim.id));
+      void qc.invalidateQueries({ queryKey: ["claims", "detail", claim.id] });
+      onClose();
+    },
+  });
+  const others = options?.insurers.filter((i) => i.id !== claim.policy.insurerOrgId) ?? [];
+  return (
+    <Modal open={open} onClose={onClose} title="Co-insurance" size="lg" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={m.isPending} disabled={rows.length > 0 && lead <= 0} onClick={() => m.mutate()}>Save</Button></>}>
+      <div className="space-y-4 text-sm">
+        <p className="text-slate-600">
+          The lead insurer is {claim.policy.insurerName}. Add the following insurers and their shares; the lead keeps the rest. Reports and fee notes split the
+          figures by these shares.
+        </p>
+        {m.isError && <ErrorNote message={errorMessage(m.error)} />}
+        {rows.map((r, i) => (
+          <div key={i} className="grid grid-cols-[1fr_8rem_auto] items-end gap-3">
+            <Field label={`Co-insurer ${i + 1}`}>
+              {(id) => (
+                <Select id={id} value={r.organisationId} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, organisationId: e.target.value } : x)))}>
+                  <option value="">Pick an insurer</option>
+                  {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </Select>
+              )}
+            </Field>
+            <Field label="Share (%)">{(id) => <Input id={id} inputMode="decimal" value={r.sharePercent} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, sharePercent: e.target.value.replace(/[^\d.]/g, "") } : x)))} />}</Field>
+            <Button variant="ghost" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</Button>
+          </div>
+        ))}
+        <div className="flex items-center justify-between">
+          <Button variant="secondary" size="sm" onClick={() => setRows([...rows, { organisationId: "", sharePercent: "" }])}>Add co-insurer</Button>
+          <span className={lead <= 0 ? "text-red-700" : "text-slate-600"}>{claim.policy.insurerName} (lead): {rows.length ? lead : 100}%</span>
+        </div>
+      </div>
     </Modal>
   );
 }

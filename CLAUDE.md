@@ -47,8 +47,9 @@ npm workspaces monorepo, TypeScript everywhere, Node 20 LTS.
     tests/                vitest + supertest, against a throwaway MySQL database per run
 ```
 
-**PDF: PDFKit, not Puppeteer** _(assumption)_. Puppeteer needs Chromium on the host (heavy, fragile on Render/cPanel-style
-hosting). PDFKit is pure JS and enough for formal, branded, tabular reports.
+**PDF: HTML templates through Puppeteer, PDFKit as fallback** (changed 2026-11-20 at the user's request; it was PDFKit only).
+`server/src/templates/*.template.html` (Handlebars, the firm's own designs) are printed by headless Chrome; a template that
+isn't there falls back to the PDFKit builders. See section 13 "PDF generator".
 
 ## 3. Roles (RBAC)
 
@@ -355,7 +356,42 @@ Each phase ends green on build, typecheck, lint and tests, committed and pushed 
   - The seed builds reports and fee notes with the same snapshot and PDF code, matching each claim's status.
   - Tests: `reports.test.ts` (both reports end to end, maker-checker, tamper detection, fee notes, audit),
     `feeNote.test.ts` (VAT/WHT and amounts in words). 88 in all.
-- **Open items / not built:** WHT rate and its application to expenses need the firm's tax adviser's confirmation;
+- **Approval matrix, co-insurance, HTML PDFs (2026-11-20, migration `approval_matrix_coinsurance`):**
+  - **Approval matrix** (`approval_tiers`, `lib/approvalMatrix.ts` pure, `modules/approval-tiers`, page `/approval-matrix`):
+    tiers by the final report's recommended settlement (seeded: from NGN 0 one sign-off, from NGN 50m two; the user chose
+    "tiers by amount", the amounts are a starting point). Must have a NGN 0 tier and never fewer sign-offs for more money;
+    saving replaces the whole matrix (audited `APPROVAL_MATRIX_CHANGED`). The tier is fixed onto the report at **submit**
+    (`reports.required_approvals`, `approval_tier_label`); preliminary reports always need 1. Each principal's sign-off is a
+    `report_approvals` row; the report becomes APPROVED (PDF rendered, hashed, released) only on the last one
+    (`REPORT_SIGNOFF_ADDED` before that). One sign-off per principal; the author counts only when the other active
+    principals are fewer than the tier needs, with a note. Returning revokes the live sign-offs (`revoked_at`), so a
+    resubmission starts again. The final PDF can't be had before that: the PDF routes give staff a DRAFT / PREVIEW and
+    insurers 404.
+  - **Co-insurance:** `policies.lead_share_percent` + `policy_co_insurers` (insurer organisations, shares). Lead + followers
+    must be exactly 100% (`sharesComplete`), the lead can't follow, no duplicates; without followers the lead is 100%. Set
+    on POST/PATCH `/policies` (`leadSharePercent`, `coInsurers`: replace-all), in the UI from the claim's Policy card
+    ("Co-insurance", principal). `lib/apportion.ts` splits any amount by share in kobo, residue to the lead. Snapshots
+    taken before this have no co-insurance (shown as none).
+  - **Co-adjuster:** `claims.co_adjuster_firm/_naicom_no/_split_percent` (principal only; clearing the firm clears the rest;
+    split under 100%). Printed on reports; the fee note view splits the professional fee by it.
+  - **PDF generator** (`pdf/pdfGenerator.ts`): Handlebars (own instance, helpers in `pdf/handlebars.ts`: `formatCurrency`
+    = en-NG grouping, 2 decimals, done on strings not floats; `formatDate`, `formatPercent`, `eq`, `inc`, `default`,
+    `paragraphs`) fills `TEMPLATES_DIR` (default `src/templates`, relative to `server/`) `loss-adjustment-report.template.html`
+    and `fee-note.template.html` from the view models in `pdf/views.ts` (`reportView`, `feeNoteView`: **the template
+    variable names live there**; typed text is passed as escaped SafeStrings with `<br>` for line breaks). Puppeteer prints
+    A4 with JS disabled and every non-`data:` request aborted; one headless-shell browser per process, closed after 60 s
+    idle. Unapproved documents get a "DRAFT / PREVIEW" watermark injected before `</body>`. `PDF_RENDERER=pdfkit` turns
+    Chrome off. Chrome lives in `.cache/puppeteer` (`.puppeteerrc.cjs`: only the headless shell is downloaded, during
+    `npm ci`), so Render's build and runtime share it; `PUPPETEER_EXECUTABLE_PATH` points at another Chrome (this cloud
+    sandbox: `/opt/pw-browsers/chromium`). Approved/issued PDFs are still rendered once and stored with their SHA-256.
+    The seed uses PDFKit (no Chrome needed on first start).
+  - **Endpoints:** `GET /claims/:id/reports/{preliminary|final}/pdf` (latest version of that report; a numeric id still
+    works) and `GET /claims/:id/fee-note/pdf` (latest issued/paid note, else staff get the latest draft as a preview;
+    `?feeNoteId=` picks one). Both under `/api/v1` like everything else.
+  - Tests: `pdfAndApproval.test.ts` (apportioning, tiers, naira formatting, co-insurance rules, two-principal sign-off with
+    return, fee note by claim, co-adjuster, a real Chrome render with escaping and watermark). 97 in all.
+- **Open items / not built:** the firm's two HTML templates are not in the repository yet (until they are, PDFs come from
+  PDFKit); the fee-note view's variable names were chosen before its template was seen and must be checked against it; WHT rate and its application to expenses need the firm's tax adviser's confirmation;
   SLA working days ignore public holidays; Cloudinary and S3 have not been exercised against live accounts; users
   can't change their own password (an admin sets it); no email notifications.
 

@@ -44,6 +44,7 @@ the first admin, then starts the server. Environment variables:
 | `LOAD_DEMO_DATA` | `true` to fill an empty database with the fictional demo data (set `SEED_PASSWORD` to choose its password) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | makes that email an active Principal Adjuster with that password on the next start (creates it, or restores and resets it); remove `ADMIN_PASSWORD` after signing in |
 | `FIRM_*` | the firm's details for reports and fee notes |
+| `PDF_RENDERER` | `html` (default: the templates in `server/src/templates`, printed by headless Chrome) or `pdfkit` (no Chrome) |
 
 The demo data loads only into an empty database; the admin setting changes only that one account.
 
@@ -52,6 +53,13 @@ The demo data loads only into an empty database; the admin setting changes only 
 Reports and fee notes print the firm's details from the `FIRM_*` settings in `server/.env` (name, address, RC number,
 NAICOM licence, contact, TIN, bank account, optional logo). Until they are set, the documents show `[placeholders]`
 and principals see a reminder. VAT and WHT rates are `VAT_RATE` and `WHT_RATE`.
+
+The layout comes from two HTML templates in `server/src/templates/` (`loss-adjustment-report.template.html` and
+`fee-note.template.html`, Handlebars). Chrome for printing them is downloaded by `npm ci` into `.cache/puppeteer`. While a
+template is missing, that document is drawn by the built-in PDFKit layout instead. Chrome needs about 200 MB of memory
+while it prints; on Render's 512 MB plan watch for restarts, or set `PDF_RENDERER=pdfkit`.
+
+Final reports need the number of principal sign-offs set in **Approval matrix** (default: one, or two from NGN 50m).
 
 Uploads go to `STORAGE_DRIVER` (`cloudinary`, `s3`, or `local` for development); set that service's keys as listed in
 `server/.env.example`.

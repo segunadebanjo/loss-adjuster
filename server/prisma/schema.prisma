@@ -88,6 +88,7 @@ model Organisation {
   deletedAt       DateTime?        @map("deleted_at")
 
   users            User[]
+  coInsurances     PolicyCoInsurer[]
   insurerPolicies  Policy[] @relation("PolicyInsurer")
   brokerPolicies   Policy[] @relation("PolicyBroker")
 
@@ -119,6 +120,7 @@ model User {
   statusChanges     ClaimStatusHistory[]
   draftedReports    Report[]             @relation("ReportDraftedBy")
   reviewedReports   Report[]             @relation("ReportReviewedBy")
+  reportApprovals   ReportApproval[]
   auditLogs         AuditLog[]
 
   @@index([role])
@@ -157,17 +159,39 @@ model Policy {
   excessPercentage Decimal    @default(0) @map("excess_percentage") @db.Decimal(5, 2)
   startDate        DateTime   @map("start_date") @db.Date
   endDate          DateTime   @map("end_date") @db.Date
+  /// The lead insurer's (insurer_org_id) share of the risk; 100 unless the risk is co-insured.
+  leadSharePercent Decimal    @default(100) @map("lead_share_percent") @db.Decimal(5, 2)
   createdAt        DateTime   @default(now()) @map("created_at")
   updatedAt        DateTime   @updatedAt @map("updated_at")
   deletedAt        DateTime?  @map("deleted_at")
 
-  insurer Organisation  @relation("PolicyInsurer", fields: [insurerOrgId], references: [id])
-  broker  Organisation? @relation("PolicyBroker", fields: [brokerOrgId], references: [id])
-  claims  Claim[]
+  insurer     Organisation      @relation("PolicyInsurer", fields: [insurerOrgId], references: [id])
+  broker      Organisation?     @relation("PolicyBroker", fields: [brokerOrgId], references: [id])
+  claims      Claim[]
+  coInsurers  PolicyCoInsurer[]
 
   @@unique([insurerOrgId, policyNumber])
   @@index([brokerOrgId])
   @@map("policies")
+}
+
+/// The other (following) insurers of a co-insured policy; with the lead's share they add up to 100%.
+model PolicyCoInsurer {
+  id             Int      @id @default(autoincrement())
+  policyId       Int      @map("policy_id")
+  organisationId Int      @map("organisation_id")
+  /// Printed name, kept as text like policies.insurer_name.
+  insurerName    String   @map("insurer_name") @db.VarChar(191)
+  sharePercent   Decimal  @map("share_percent") @db.Decimal(5, 2)
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  policy       Policy       @relation(fields: [policyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([policyId, organisationId])
+  @@map("policy_co_insurers")
 }
 
 /// Numbering for documents other than claims (fee notes: FN-YYYY-NNNN), one counter per kind and year.
@@ -207,6 +231,10 @@ model Claim {
   settledAmount         Decimal?    @map("settled_amount") @db.Decimal(15, 2)
   adjusterFee           Decimal?    @map("adjuster_fee") @db.Decimal(15, 2)
   repudiationReason     String?     @map("repudiation_reason") @db.Text
+  /// Another adjusting firm working the claim with us, and its share of the fee.
+  coAdjusterFirm        String?     @map("co_adjuster_firm") @db.VarChar(191)
+  coAdjusterNaicomNo    String?     @map("co_adjuster_naicom_no") @db.VarChar(64)
+  coAdjusterSplitPercent Decimal?   @map("co_adjuster_split_percent") @db.Decimal(5, 2)
   closedAt              DateTime?   @map("closed_at")
   createdAt             DateTime    @default(now()) @map("created_at")
   updatedAt             DateTime    @updatedAt @map("updated_at")
@@ -338,15 +366,48 @@ model Report {
   /// The signed-off PDF, frozen at approval; downloads check it against pdf_sha256.
   pdfData        Bytes?       @map("pdf_data") @db.MediumBlob
   pdfSha256      String?      @map("pdf_sha256") @db.Char(64)
+  /// Sign-offs needed, fixed from the approval matrix when the report is submitted.
+  requiredApprovals Int        @default(1) @map("required_approvals")
+  approvalTierLabel String?    @map("approval_tier_label") @db.VarChar(100)
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
   claim      Claim @relation(fields: [claimId], references: [id])
   draftedBy  User  @relation("ReportDraftedBy", fields: [draftedById], references: [id])
   reviewedBy User? @relation("ReportReviewedBy", fields: [reviewedById], references: [id])
+  approvals  ReportApproval[]
 
   @@unique([claimId, type, version])
   @@map("reports")
+}
+
+/// One principal's sign-off of a submitted report. Revoked (never deleted) when the report is returned.
+model ReportApproval {
+  id           Int       @id @default(autoincrement())
+  reportId     Int       @map("report_id")
+  approvedById Int       @map("approved_by")
+  note         String?   @db.Text
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  report     Report @relation(fields: [reportId], references: [id])
+  approvedBy User   @relation(fields: [approvedById], references: [id])
+
+  @@index([reportId])
+  @@map("report_approvals")
+}
+
+/// The approval matrix: a final report recommending at least min_amount needs required_approvals principals.
+model ApprovalTier {
+  id                Int      @id @default(autoincrement())
+  label             String   @db.VarChar(100)
+  minAmount         Decimal  @map("min_amount") @db.Decimal(15, 2)
+  requiredApprovals Int      @map("required_approvals")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([minAmount])
+  @@map("approval_tiers")
 }
 
 model FeeNote {

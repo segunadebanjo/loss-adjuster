@@ -21,6 +21,8 @@ import { valuationRoutes } from "./modules/valuation/valuation.routes.js";
 import { reportRoutes } from "./modules/reports/reports.routes.js";
 import { feeNoteRoutes } from "./modules/fee-notes/feeNotes.routes.js";
 import { auditRoutes } from "./modules/audit/audit.routes.js";
+import { approvalTierRoutes } from "./modules/approval-tiers/approvalTiers.js";
+import { feeNoteDocumentRoutes } from "./modules/fee-notes/feeNotes.routes.js";
 import { firm } from "./lib/firm.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
@@ -64,6 +66,7 @@ export function createApp() {
   api.use("/claims/:claimId/valuation", valuationRoutes);
   api.use("/claims/:claimId/reports", reportRoutes);
   api.use("/claims/:claimId/fee-notes", feeNoteRoutes);
+  api.use("/claims/:claimId/fee-note", feeNoteDocumentRoutes);
   api.use("/claims/:claimId/audit", auditRoutes);
   api.get("/meta/firm", (_req, res) => {
     const f = firm();
@@ -74,6 +77,7 @@ export function createApp() {
   api.use("/policies", policyRoutes);
   api.use("/organisations", organisationRoutes);
   api.use("/users", userRoutes);
+  api.use("/approval-tiers", approvalTierRoutes);
   app.use("/api/v1", api);
 
   // In production the API also serves the built web app (client/dist), so one web service runs both.

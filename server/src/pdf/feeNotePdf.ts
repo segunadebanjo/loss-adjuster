@@ -13,6 +13,10 @@ export interface FeeNotePdfModel {
   expenses: Array<{ description: string; amount: string }>;
   figures: FeeNoteFigures;
   notes: string | null;
+  /** Lead plus followers when the policy is co-insured (each is debited its share); empty otherwise. */
+  coInsurers?: Array<{ name: string; role: "LEAD" | "FOLLOWER"; sharePercent: string }>;
+  coAdjuster?: { firmName: string; naicomNo: string | null; splitPercent: string | null } | null;
+  amountInWords?: string;
 }
 
 export async function buildFeeNotePdf(m: FeeNotePdfModel): Promise<Buffer> {
