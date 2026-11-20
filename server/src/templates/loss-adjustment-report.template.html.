@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{reportType}} - {{claimReference}}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm 15mm 20mm 15mm;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 3px solid #0f2942;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .firm-details h1 {
+      margin: 0;
+      font-size: 16pt;
+      color: #0f2942;
+      letter-spacing: 0.4px;
+    }
+    .firm-details p {
+      margin: 2px 0;
+      font-size: 8.5pt;
+      color: #475569;
+    }
+    .badge-box {
+      text-align: right;
+    }
+    .report-badge {
+      display: inline-block;
+      background-color: #0f2942;
+      color: #ffffff;
+      padding: 5px 12px;
+      font-weight: 700;
+      font-size: 9.5pt;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      border-radius: 3px;
+    }
+    .confidential {
+      margin-top: 6px;
+      font-size: 8pt;
+      font-weight: 700;
+      color: #b91c1c;
+      text-transform: uppercase;
+    }
+    .meta-grid {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 18px;
+      font-size: 9.5pt;
+    }
+    .meta-grid td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 10px;
+      vertical-align: top;
+    }
+    .meta-label {
+      background-color: #f1f5f9;
+      font-weight: 600;
+      width: 22%;
+      color: #334155;
+    }
+    .meta-val {
+      width: 28%;
+    }
+    h2.section-title {
+      font-size: 11.5pt;
+      color: #0f2942;
+      background-color: #e2e8f0;
+      padding: 6px 10px;
+      border-left: 4px solid #0f2942;
+      margin: 18px 0 10px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    p { margin: 0 0 10px 0; text-align: justify; }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 14px;
+      font-size: 9.5pt;
+    }
+    table.data-table th {
+      background-color: #0f2942;
+      color: #ffffff;
+      text-align: left;
+      padding: 7px 10px;
+      font-weight: 600;
+    }
+    table.data-table td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 10px;
+    }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .bold-row td {
+      font-weight: 700;
+      background-color: #f8fafc;
+    }
+    .highlight-row td {
+      font-weight: 700;
+      background-color: #e0f2fe;
+      color: #0f2942;
+      font-size: 10.5pt;
+    }
+    .callout-box {
+      border: 1px solid #94a3b8;
+      background-color: #f8fafc;
+      padding: 10px 12px;
+      border-radius: 4px;
+      margin-bottom: 14px;
+      font-size: 9.5pt;
+    }
+    .signoff-grid {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 28px;
+      page-break-inside: avoid;
+    }
+    .signoff-box {
+      width: 46%;
+      border-top: 1px solid #334155;
+      padding-top: 6px;
+      font-size: 9.5pt;
+    }
+    .footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      font-size: 8pt;
+      color: #64748b;
+      border-top: 1px solid #cbd5e1;
+      padding-top: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .page-break { page-break-before: always; }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="firm-details">
+      <h1>{{firm.name}}</h1>
+      <p>Chartered Loss Adjusters, Marine &amp; Risk Surveyors</p>
+      <p>{{firm.address}} | Tel: {{firm.phone}} | Email: {{firm.email}}</p>
+      <p><strong>NAICOM Reg. No:</strong> {{firm.naicomRacNumber}} | <strong>ILAN Member</strong></p>
+    </div>
+    <div class="badge-box">
+      <div class="report-badge">{{reportType}}</div>
+      <div class="confidential">Strict &amp; Confidential &bull; Without Prejudice</div>
+      <p style="font-size: 8.5pt; margin-top: 6px;">Date: <strong>{{reportDate}}</strong></p>
+    </div>
+  </div>
+
+  <!-- CLAIM & POLICY SUMMARY TABLE -->
+  <table class="meta-grid">
+    <tr>
+      <td class="meta-label">Our File Ref:</td>
+      <td class="meta-val"><strong>{{claim.ourReference}}</strong></td>
+      <td class="meta-label">Insurer Claim Ref:</td>
+      <td class="meta-val">{{claim.insurerReference}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Lead Insurer:</td>
+      <td class="meta-val"><strong>{{insurer.name}}</strong> ({{insurer.sharePercent}}%)</td>
+      <td class="meta-label">Broker (if any):</td>
+      <td class="meta-val">{{claim.brokerName}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">The Insured:</td>
+      <td class="meta-val"><strong>{{insured.name}}</strong></td>
+      <td class="meta-label">Class of Insurance:</td>
+      <td class="meta-val">{{claim.insuranceClass}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Policy Number:</td>
+      <td class="meta-val">{{policy.number}}</td>
+      <td class="meta-label">Period of Cover:</td>
+      <td class="meta-val">{{policy.startDate}} to {{policy.endDate}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Sum Insured:</td>
+      <td class="meta-val">₦{{formatCurrency policy.sumInsured}}</td>
+      <td class="meta-label">Policy Excess:</td>
+      <td class="meta-val">₦{{formatCurrency policy.excessAmount}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Date of Loss:</td>
+      <td class="meta-val">{{claim.dateOfLoss}}</td>
+      <td class="meta-label">Date Instructed / Visited:</td>
+      <td class="meta-val">{{claim.dateInstructed}} / {{claim.dateVisited}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Location of Loss:</td>
+      <td colspan="3">{{claim.lossLocation}}</td>
+    </tr>
+    {{#if coAdjuster}}
+    <tr>
+      <td class="meta-label">Co-Adjusting Firm:</td>
+      <td colspan="3">{{coAdjuster.firmName}} ({{coAdjuster.naicomRacNumber}}) &mdash; Fee Split: {{coAdjuster.splitPercent}}%</td>
+    </tr>
+    {{/if}}
+  </table>
+
+  <!-- 1. EXECUTIVE SUMMARY -->
+  <h2 class="section-title">1. Executive Summary</h2>
+  <div class="callout-box">
+    <p><strong>Brief Circumstances:</strong> {{summary.briefCircumstances}}</p>
+    <p><strong>Policy Liability Position:</strong> {{summary.liabilityOpinion}}</p>
+    <p style="margin-bottom:0;">
+      <strong>Claimed Amount:</strong> ₦{{formatCurrency quantum.grossClaimed}} &nbsp;|&nbsp;
+      <strong>Recommended Reserve / Net Settlement:</strong> <strong>₦{{formatCurrency quantum.netAdjustedPayable}}</strong>
+    </p>
+  </div>
+
+  <!-- 2. INTRODUCTION & INSTRUCTIONS -->
+  <h2 class="section-title">2. Instructions &amp; Survey Attendance</h2>
+  <p>{{narrative.instructionsAndSurvey}}</p>
+
+  <!-- 3. THE INSURED & RISK DESCRIPTION -->
+  <h2 class="section-title">3. The Insured &amp; Risk Description</h2>
+  <p>{{narrative.insuredAndRiskDescription}}</p>
+
+  <!-- 4. CIRCUMSTANCES & CAUSE OF LOSS -->
+  <h2 class="section-title">4. Circumstances &amp; Cause of Loss</h2>
+  <p>{{narrative.circumstancesAndCause}}</p>
+
+  <!-- 5. POLICY COVER & LIABILITY ANALYSIS -->
+  <h2 class="section-title">5. Policy Cover, Warranties &amp; Liability Analysis</h2>
+  <p>{{narrative.policyLiabilityAnalysis}}</p>
+
+  <!-- 6. QUANTUM & ADJUSTMENT COMPUTATION -->
+  <h2 class="section-title">6. Verification &amp; Adjustment of Quantum</h2>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width: 45%;">Item / Head of Claim</th>
+        <th class="num" style="width: 18%;">Claimed (₦)</th>
+        <th class="num" style="width: 18%;">Assessed (₦)</th>
+        <th style="width: 19%;">Remarks</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each quantum.lineItems}}
+      <tr>
+        <td>{{this.description}}</td>
+        <td class="num">{{formatCurrency this.claimedAmount}}</td>
+        <td class="num">{{formatCurrency this.assessedAmount}}</td>
+        <td>{{this.remarks}}</td>
+      </tr>
+      {{/each}}
+      <tr class="bold-row">
+        <td>Gross Assessed Loss</td>
+        <td class="num">{{formatCurrency quantum.grossClaimed}}</td>
+        <td class="num">{{formatCurrency quantum.grossAssessed}}</td>
+        <td></td>
+      </tr>
+      {{#if quantum.depreciationAmount}}
+      <tr>
+        <td>Less: Wear, Tear &amp; Depreciation ({{quantum.depreciationRate}}%)</td>
+        <td class="num">&mdash;</td>
+        <td class="num">({{formatCurrency quantum.depreciationAmount}})</td>
+        <td>Indemnity basis</td>
+      </tr>
+      {{/if}}
+      {{#if quantum.averageDeduction}}
+      <tr>
+        <td>Less: Pro-Rata Average (Underinsurance: Sum Insured ₦{{formatCurrency policy.sumInsured}} vs Value at Risk ₦{{formatCurrency quantum.valueAtRisk}})</td>
+        <td class="num">&mdash;</td>
+        <td class="num">({{formatCurrency quantum.averageDeduction}})</td>
+        <td>Average Clause applied</td>
+      </tr>
+      {{/if}}
+      {{#if quantum.salvageValue}}
+      <tr>
+        <td>Less: Agreed Salvage Allowance</td>
+        <td class="num">&mdash;</td>
+        <td class="num">({{formatCurrency quantum.salvageValue}})</td>
+        <td>Retained by Insured</td>
+      </tr>
+      {{/if}}
+      <tr>
+        <td>Less: Policy Excess / Deductible</td>
+        <td class="num">&mdash;</td>
+        <td class="num">({{formatCurrency policy.excessAmount}})</td>
+        <td>Per Policy Schedule</td>
+      </tr>
+      <tr class="highlight-row">
+        <td colspan="2">NET ADJUSTED CLAIM PAYABLE</td>
+        <td class="num">₦{{formatCurrency quantum.netAdjustedPayable}}</td>
+        <td>Recommended</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 7. CO-INSURANCE APPORTIONMENT (IF APPLICABLE) -->
+  {{#if coInsurers.length}}
+  <h2 class="section-title">7. Co-Insurance Settlement Apportionment</h2>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Participating Insurer</th>
+        <th>Role</th>
+        <th class="num">Share (%)</th>
