@@ -170,6 +170,16 @@ model Policy {
   @@map("policies")
 }
 
+/// Numbering for documents other than claims (fee notes: FN-YYYY-NNNN), one counter per kind and year.
+model DocumentSequence {
+  kind   String @db.VarChar(16)
+  year   Int
+  lastNo Int    @default(0) @map("last_no")
+
+  @@id([kind, year])
+  @@map("document_sequences")
+}
+
 model ClaimSequence {
   year   Int @id
   lastNo Int @default(0) @map("last_no")
@@ -322,7 +332,11 @@ model Report {
   reviewedById   Int?         @map("reviewed_by")
   reviewedAt     DateTime?    @map("reviewed_at")
   returnReason   String?      @map("return_reason") @db.Text
+  /// Set when the drafter also approved (only one active principal); says why.
+  selfApprovalNote String?    @map("self_approval_note") @db.Text
   pdfUrl         String?      @map("pdf_url") @db.VarChar(1024)
+  /// The signed-off PDF, frozen at approval; downloads check it against pdf_sha256.
+  pdfData        Bytes?       @map("pdf_data") @db.MediumBlob
   pdfSha256      String?      @map("pdf_sha256") @db.Char(64)
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -348,9 +362,16 @@ model FeeNote {
   whtAmount        Decimal       @map("wht_amount") @db.Decimal(15, 2)
   netPayable       Decimal       @map("net_payable") @db.Decimal(15, 2)
   status           FeeNoteStatus @default(DRAFT)
+  notes            String?       @db.Text
+  createdById      Int?          @map("created_by")
+  issuedById       Int?          @map("issued_by")
   issuedAt         DateTime?     @map("issued_at")
   paidAt           DateTime?     @map("paid_at")
+  paymentReference String?       @map("payment_reference") @db.VarChar(128)
+  cancelReason     String?       @map("cancel_reason") @db.Text
   pdfUrl           String?       @map("pdf_url") @db.VarChar(1024)
+  pdfData          Bytes?        @map("pdf_data") @db.MediumBlob
+  pdfSha256        String?       @map("pdf_sha256") @db.Char(64)
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
 

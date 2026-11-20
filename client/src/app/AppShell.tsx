@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 import { LogOut, Menu, ShieldCheck, X } from "lucide-react";
 import clsx from "clsx";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth/AuthContext";
+import { documentKeys, documentsApi } from "@/shared/api/documents";
 import { NAV_ITEMS, ROLE_LABEL } from "./nav";
 
 function initials(name: string) {
@@ -17,6 +19,7 @@ function initials(name: string) {
 export function AppShell() {
   const { user, signOut } = useAuth();
   const [open, setOpen] = useState(false);
+  const { data: firm } = useQuery({ queryKey: documentKeys.firm, queryFn: documentsApi.firm, staleTime: Infinity, enabled: !!user });
 
   // The mobile drawer closes when a link is picked (onClick below) and on Escape.
   useEffect(() => {
@@ -56,7 +59,7 @@ export function AppShell() {
         ))}
       </ul>
       <div className="border-t border-white/10 p-4 text-xs text-brand-100/60">
-        {user.organisation ? user.organisation.name : "Pinnacle Loss Adjusters Ltd"}
+        {user.organisation ? user.organisation.name : (firm?.name ?? "")}
       </div>
     </nav>
   );
@@ -111,6 +114,11 @@ export function AppShell() {
           </div>
         </header>
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          {user.role === "ADMIN" && firm?.placeholders && (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Reports and fee notes still print placeholder firm details (address, RC number, bank account). Set the FIRM_* settings on the server before issuing them.
+            </p>
+          )}
           <Outlet />
         </main>
       </div>

@@ -224,3 +224,67 @@ export interface Valuation {
   editable: boolean;
   categories: string[];
 }
+
+export type ReportType = "PRELIMINARY" | "FINAL";
+export type ReportStatus = "DRAFT" | "SUBMITTED" | "RETURNED" | "APPROVED";
+export interface ReportSectionDef {
+  key: string;
+  title: string;
+  required: boolean;
+  hint: string;
+}
+export interface Report {
+  id: number;
+  type: ReportType;
+  version: number;
+  status: ReportStatus;
+  draftedBy: { id: number; fullName: string };
+  submittedAt: string | null;
+  reviewedBy: { id: number; fullName: string } | null;
+  reviewedAt: string | null;
+  pdfSha256: string | null;
+  createdAt: string;
+  updatedAt: string;
+  body?: { sections: Record<string, string> };
+  returnReason?: string | null;
+  selfApprovalNote?: string | null;
+}
+export interface ReportList {
+  data: Report[];
+  sections: Record<ReportType, ReportSectionDef[]>;
+  canStart: Record<ReportType, boolean>;
+}
+
+export type FeeNoteStatus = "DRAFT" | "ISSUED" | "PAID" | "CANCELLED";
+export interface FeeNote {
+  id: number;
+  feeNoteNo: string | null;
+  status: FeeNoteStatus;
+  professionalFee: string;
+  expenses: Array<{ description: string; amount: string }>;
+  vatRate: string;
+  whtRate: string;
+  grossAmount: string;
+  vatAmount: string;
+  invoiceTotal: string;
+  whtAmount: string;
+  netPayable: string;
+  notes: string | null;
+  issuedAt: string | null;
+  paidAt: string | null;
+  paymentReference: string | null;
+  cancelReason: string | null;
+  pdfSha256: string | null;
+  createdAt: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  action: string;
+  entityType: string;
+  entityId: number | null;
+  user: { id: number; fullName: string } | null;
+  details: Record<string, unknown> | null;
+  ipAddress: string | null;
+  createdAt: string;
+}

@@ -8,6 +8,14 @@ import bcrypt from "bcryptjs";
 import { PrismaClient, type ClaimStatus, type PolicyType, type Role } from "@prisma/client";
 import { toKobo, fromKobo } from "../src/lib/money.js";
 import { computeSettlement } from "../src/lib/settlement.js";
+import { createHash } from "node:crypto";
+import { prisma as appDb } from "../src/lib/prisma.js";
+import { firm } from "../src/lib/firm.js";
+import { computeFeeNote } from "../src/lib/feeNote.js";
+import { buildReportPdf } from "../src/pdf/reportPdf.js";
+import { buildFeeNotePdf } from "../src/pdf/feeNotePdf.js";
+import { reportSnapshot } from "../src/modules/reports/reports.service.js";
+import { POLICY_TYPE_LABELS } from "../src/modules/claims/claims.service.js";
 
 const prisma = new PrismaClient();
 
@@ -45,6 +53,7 @@ async function wipe() {
   await prisma.claimStatusHistory.deleteMany();
   await prisma.claim.deleteMany();
   await prisma.claimSequence.deleteMany();
+  await prisma.documentSequence.deleteMany();
   await prisma.policy.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.user.deleteMany();
@@ -322,6 +331,7 @@ async function main() {
   ];
 
   const seq = new Map<number, number>();
+  const created: Array<{ id: number; seed: ClaimSeed }> = [];
   for (const c of claimSeeds) {
     const instructed = day(c.instructed);
     const year = instructed.getUTCFullYear();
@@ -352,6 +362,8 @@ async function main() {
         createdAt: instructed,
       },
     });
+
+    created.push({ id: claim.id, seed: c });
 
     // Status history: walk the workflow up to the claim's status, a few days per step, never past today.
     const target = c.status === "REPUDIATED" ? "UNDER_INVESTIGATION" : c.status;
@@ -447,6 +459,7 @@ async function main() {
     });
   }
   for (const [year, lastNo] of seq) await prisma.claimSequence.create({ data: { year, lastNo } });
+  await seedDocuments(created, principal.id);
 
   const counts = {
     organisations: await prisma.organisation.count(),
@@ -457,6 +470,98 @@ async function main() {
   };
   console.log("Seeded:", counts);
   console.log(`Sign in as ${principal.email} (or any seeded user) with password "${PASSWORD}".`);
+}
+
+/**
+ * Reports and fee notes that match each claim's status, built with the app's own snapshot and PDF code:
+ * a signed-off preliminary report from "preliminary report submitted" on, a final report drafted / submitted /
+ * signed off to match, and an issued fee note on settled claims (the first one paid).
+ */
+async function seedDocuments(claims: Array<{ id: number; seed: { status: ClaimStatus; fee?: number; description: string } }>, principalId: number) {
+  const ORDER: ClaimStatus[] = ["NEW_INSTRUCTION", "INSPECTION_SCHEDULED", "UNDER_INVESTIGATION", "PRELIM_REPORT_SUBMITTED", "AWAITING_DOCUMENTS", "FINAL_REPORT_DRAFTED", "PENDING_SIGNOFF", "SETTLED"];
+  const at = (s: ClaimStatus) => ORDER.indexOf(s);
+  const principalUser = await prisma.user.findUniqueOrThrow({ where: { id: principalId } });
+  let feeNo = 0;
+  for (const { id, seed } of claims) {
+    if (seed.status === "REPUDIATED" || at(seed.status) < at("PRELIM_REPORT_SUBMITTED")) continue;
+    const claim = await prisma.claim.findUniqueOrThrow({ where: { id }, include: { statusHistory: true, policy: { include: { insurer: true } } } });
+    const when = (s: ClaimStatus) => claim.statusHistory.find((h) => h.toStatus === s)?.changedAt ?? new Date();
+    const drafter = claim.assignedAdjusterId!;
+    const first = seed.description.split(". ")[0];
+    const prelimBody = {
+      sections: {
+        background: `We were instructed by ${claim.policy.insurerName} to investigate and report on this claim under policy ${claim.policy.policyNumber}.`,
+        circumstances: seed.description,
+        inspection: "We inspected the site with the insured's representative, photographed the damage and took measurements.",
+        cause: `${first}. Our findings are consistent with the insured's account.`,
+        liability: "Subject to the documents requested below, the loss appears to fall within the operative cover.",
+        reserve: "We recommend that the insurer maintains its current reserve pending our final report.",
+        documents: "Completed claim form; police or fire service report as applicable; repair estimates or invoices; evidence of ownership and value.",
+      },
+    };
+    const approve = async (type: "PRELIMINARY" | "FINAL", body: { sections: Record<string, string> }, approvedAt: Date) => {
+      const { model } = await appDb.$transaction((tx) => reportSnapshot(tx, id, type, body));
+      const pdf = await buildReportPdf({ ...model, firm: firm(), version: 1, approved: true, date: approvedAt, approver: { fullName: principalUser.fullName, qualification: principalUser.ciiQualification, approvedAt } });
+      return { figures: JSON.parse(JSON.stringify(model)), pdfData: new Uint8Array(pdf), pdfSha256: createHash("sha256").update(pdf).digest("hex") };
+    };
+
+    const prelimAt = when("PRELIM_REPORT_SUBMITTED");
+    await prisma.report.create({
+      data: { claimId: id, type: "PRELIMINARY", status: "APPROVED", body: prelimBody, draftedById: drafter, submittedAt: prelimAt, reviewedById: principalId, reviewedAt: prelimAt, ...(await approve("PRELIMINARY", prelimBody, prelimAt)) },
+    });
+
+    if (at(seed.status) < at("FINAL_REPORT_DRAFTED")) continue;
+    const finalBody = {
+      sections: {
+        background: `We were instructed by ${claim.policy.insurerName}. Our preliminary report was issued earlier.`,
+        circumstances: seed.description,
+        investigation: "We inspected the site, interviewed the insured's staff and examined the invoices, estimates and reports provided.",
+        cause: prelimBody.sections.cause,
+        liability: "The loss is covered. Where the value at risk exceeded the sum insured, the average clause has been applied.",
+        quantum: "Each item was checked against invoices or independent quotations; depreciation and betterment were applied where the repair or replacement leaves the insured better off.",
+        recommendation: "We recommend settlement in the net sum shown below, on receipt of a signed discharge voucher.",
+      },
+    };
+    if (seed.status === "FINAL_REPORT_DRAFTED") {
+      await prisma.report.create({ data: { claimId: id, type: "FINAL", status: "DRAFT", body: finalBody, draftedById: drafter } });
+      continue;
+    }
+    const submittedAt = when("PENDING_SIGNOFF");
+    if (seed.status === "PENDING_SIGNOFF") {
+      const { model } = await appDb.$transaction((tx) => reportSnapshot(tx, id, "FINAL", finalBody));
+      await prisma.report.create({ data: { claimId: id, type: "FINAL", status: "SUBMITTED", body: finalBody, draftedById: drafter, submittedAt, figures: JSON.parse(JSON.stringify(model)) } });
+      continue;
+    }
+    // Settled: signed off the day before settlement, then billed.
+    const signedAt = new Date(when("SETTLED").getTime() - 86_400_000);
+    await prisma.report.create({
+      data: { claimId: id, type: "FINAL", status: "APPROVED", body: finalBody, draftedById: drafter, submittedAt, reviewedById: principalId, reviewedAt: signedAt, ...(await approve("FINAL", finalBody, signedAt)) },
+    });
+    if (!seed.fee) continue;
+    feeNo += 1;
+    const number = `FN-2026-${String(feeNo).padStart(4, "0")}`;
+    const expenses = [{ description: "Travel and site attendance", amount: naira(Math.round(seed.fee * 0.1)) }];
+    const fig = computeFeeNote({ professionalFee: naira(seed.fee), expenses, vatRate: "7.5", whtRate: "10" });
+    const issuedAt = when("SETTLED");
+    const pdf = await buildFeeNotePdf({
+      firm: firm(), number, status: "ISSUED", date: issuedAt,
+      insurer: { name: claim.policy.insurerName, address: claim.policy.insurer.address },
+      claim: { reference: claim.claimReference, insurerClaimNo: claim.insurerClaimNo, insuredName: claim.policy.insuredName, policyNumber: claim.policy.policyNumber, dateOfLoss: claim.dateOfLoss.toISOString().slice(0, 10), className: POLICY_TYPE_LABELS.find((t) => t.value === claim.policy.policyType)?.label ?? claim.policy.policyType },
+      expenses, figures: fig, notes: null,
+    });
+    await prisma.feeNote.create({
+      data: {
+        claimId: id, feeNoteNo: number, professionalFee: fig.professionalFee, expenses, vatRate: fig.vatRate, whtRate: fig.whtRate,
+        grossAmount: fig.grossAmount, vatAmount: fig.vatAmount, whtAmount: fig.whtAmount, netPayable: fig.netPayable,
+        status: feeNo === 1 ? "PAID" : "ISSUED", createdById: principalId, issuedById: principalId, issuedAt,
+        paidAt: feeNo === 1 ? new Date(issuedAt.getTime() + 10 * 86_400_000) : null, paymentReference: feeNo === 1 ? "NIP/LAP/2026/118734" : null,
+        pdfData: new Uint8Array(pdf), pdfSha256: createHash("sha256").update(pdf).digest("hex"),
+      },
+    });
+    await prisma.claim.update({ where: { id }, data: { adjusterFee: fig.professionalFee } });
+  }
+  if (feeNo) await prisma.documentSequence.create({ data: { kind: "FEE_NOTE", year: 2026, lastNo: feeNo } });
+  await appDb.$disconnect();
 }
 
 main()

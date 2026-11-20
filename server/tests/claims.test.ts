@@ -166,36 +166,30 @@ describe("visibility", () => {
 });
 
 describe("workflow", () => {
-  it("walks a claim from instruction to settlement with history and audit", async () => {
+  it("makes the manual moves with history and audit, and leaves report-driven moves to the reports", async () => {
     const c = (await admin.post("/api/v1/claims", intakeBody())).body.data;
     const move = (s: Session, to: string, extra: object = {}) => s.post(`/api/v1/claims/${c.id}/transition`, { to, ...extra });
 
     expect((await move(adjuster, "INSPECTION_SCHEDULED")).status).toBe(200);
     expect((await move(adjuster, "UNDER_INVESTIGATION")).status).toBe(200);
-    // Only the principal sends the preliminary report.
-    expect((await move(adjuster, "PRELIM_REPORT_SUBMITTED")).status).toBe(403);
-    expect((await move(admin, "PRELIM_REPORT_SUBMITTED")).status).toBe(200);
-    expect((await move(adjuster, "AWAITING_DOCUMENTS")).status).toBe(200);
-    expect((await move(adjuster, "FINAL_REPORT_DRAFTED")).status).toBe(200);
-    expect((await move(adjuster, "PENDING_SIGNOFF")).status).toBe(200);
-    // Return needs a reason.
-    expect((await move(admin, "FINAL_REPORT_DRAFTED")).status).toBe(400);
-    expect((await move(admin, "FINAL_REPORT_DRAFTED", { reason: "Average calculation needs the stock records." })).status).toBe(200);
-    expect((await move(adjuster, "PENDING_SIGNOFF")).status).toBe(200);
-    expect((await move(admin, "SETTLED")).status).toBe(400);
-    const settled = await move(admin, "SETTLED", { settledAmount: "8,750,000" });
-    expect(settled.status).toBe(200);
-    expect(settled.body.data).toMatchObject({ status: "SETTLED", settledAmount: "8750000.00" });
-    expect(settled.body.data.closedAt).not.toBeNull();
-    expect(settled.body.data.timeline.map((h: { toStatus: string }) => h.toStatus)).toEqual([
-      "NEW_INSTRUCTION", "INSPECTION_SCHEDULED", "UNDER_INVESTIGATION", "PRELIM_REPORT_SUBMITTED", "AWAITING_DOCUMENTS",
-      "FINAL_REPORT_DRAFTED", "PENDING_SIGNOFF", "FINAL_REPORT_DRAFTED", "PENDING_SIGNOFF", "SETTLED",
-    ]);
+    // Sending the preliminary report is done by approving it, not by the button.
+    const viaReport = await move(admin, "PRELIM_REPORT_SUBMITTED");
+    expect(viaReport.status).toBe(409);
+    expect(viaReport.body.error.message).toMatch(/Reports tab/);
+    const detail = (await admin.get(`/api/v1/claims/${c.id}`)).body.data;
+    expect(detail.allowedTransitions.map((t: { to: string }) => t.to)).toEqual(["REPUDIATED"]);
+
+    const rep = await move(admin, "REPUDIATED", { reason: "Material non-disclosure." });
+    expect(rep.body.data).toMatchObject({ status: "REPUDIATED", repudiationReason: "Material non-disclosure." });
+    expect(rep.body.data.closedAt).not.toBeNull();
     // Closed: no edits until reopened.
     expect((await admin.patch(`/api/v1/claims/${c.id}`, { lossLga: "Agege" })).status).toBe(422);
-    const reopened = await move(admin, "UNDER_INVESTIGATION", { reason: "Insurer queried the salvage figure." });
-    expect(reopened.body.data).toMatchObject({ status: "UNDER_INVESTIGATION", settledAmount: null, closedAt: null });
-    expect(await prisma.auditLog.count({ where: { claimId: c.id, action: "CLAIM_STATUS_CHANGED" } })).toBe(10);
+    const reopened = await move(admin, "UNDER_INVESTIGATION", { reason: "Insured produced the disclosure letter." });
+    expect(reopened.body.data).toMatchObject({ status: "UNDER_INVESTIGATION", repudiationReason: null, closedAt: null });
+    expect(reopened.body.data.timeline.map((h: { toStatus: string }) => h.toStatus)).toEqual([
+      "NEW_INSTRUCTION", "INSPECTION_SCHEDULED", "UNDER_INVESTIGATION", "REPUDIATED", "UNDER_INVESTIGATION",
+    ]);
+    expect(await prisma.auditLog.count({ where: { claimId: c.id, action: "CLAIM_STATUS_CHANGED" } })).toBe(4);
   });
 
   it("refuses moves not in the workflow, moves by other adjusters, and moves without an adjuster", async () => {

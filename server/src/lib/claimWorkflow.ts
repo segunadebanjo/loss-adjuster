@@ -13,6 +13,8 @@ export interface Transition {
   reasonRequired?: boolean;
   /** Settlement needs the agreed amount. */
   settledAmountRequired?: boolean;
+  /** Made only by a report action (approve, submit, return), never by the transition endpoint. */
+  viaReport?: string;
 }
 
 export const OPEN_STATUSES: ClaimStatus[] = [
@@ -29,11 +31,11 @@ export const CLOSED_STATUSES: ClaimStatus[] = ["SETTLED", "REPUDIATED"];
 export const CLAIM_TRANSITIONS: Transition[] = [
   { from: ["NEW_INSTRUCTION"], to: "INSPECTION_SCHEDULED", roles: ["ADMIN", "ADJUSTER"], label: "Inspection scheduled" },
   { from: ["INSPECTION_SCHEDULED"], to: "UNDER_INVESTIGATION", roles: ["ADMIN", "ADJUSTER"], label: "Inspection done, investigating" },
-  { from: ["UNDER_INVESTIGATION"], to: "PRELIM_REPORT_SUBMITTED", roles: ["ADMIN"], label: "Preliminary report sent to insurer" },
+  { from: ["UNDER_INVESTIGATION"], to: "PRELIM_REPORT_SUBMITTED", roles: ["ADMIN"], label: "Preliminary report sent to insurer", viaReport: "Approve the preliminary report on the Reports tab." },
   { from: ["PRELIM_REPORT_SUBMITTED"], to: "AWAITING_DOCUMENTS", roles: ["ADMIN", "ADJUSTER"], label: "Awaiting claim documents" },
   { from: ["PRELIM_REPORT_SUBMITTED", "AWAITING_DOCUMENTS"], to: "FINAL_REPORT_DRAFTED", roles: ["ADMIN", "ADJUSTER"], label: "Documents complete, final report drafted" },
-  { from: ["FINAL_REPORT_DRAFTED"], to: "PENDING_SIGNOFF", roles: ["ADMIN", "ADJUSTER"], label: "Submit for sign-off" },
-  { from: ["PENDING_SIGNOFF"], to: "FINAL_REPORT_DRAFTED", roles: ["ADMIN"], label: "Return to adjuster", reasonRequired: true },
+  { from: ["FINAL_REPORT_DRAFTED"], to: "PENDING_SIGNOFF", roles: ["ADMIN", "ADJUSTER"], label: "Submit for sign-off", viaReport: "Submit the final report on the Reports tab." },
+  { from: ["PENDING_SIGNOFF"], to: "FINAL_REPORT_DRAFTED", roles: ["ADMIN"], label: "Return to adjuster", reasonRequired: true, viaReport: "Return the final report on the Reports tab." },
   { from: ["PENDING_SIGNOFF"], to: "SETTLED", roles: ["ADMIN"], label: "Mark settled", settledAmountRequired: true },
   { from: OPEN_STATUSES, to: "REPUDIATED", roles: ["ADMIN"], label: "Repudiate claim", reasonRequired: true },
   { from: CLOSED_STATUSES, to: "UNDER_INVESTIGATION", roles: ["ADMIN"], label: "Reopen claim", reasonRequired: true },

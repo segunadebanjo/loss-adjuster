@@ -6,7 +6,7 @@ import { businessDaysBetween, calendarDaysBetween } from "./dates.js";
  *   INSPECTION     instruction date -> first completed inspection (else first move to UNDER_INVESTIGATION)
  *   PRELIM_REPORT  instruction date -> first move to PRELIM_REPORT_SUBMITTED
  *   FINAL_REPORT   documents complete (latest move into FINAL_REPORT_DRAFTED) -> next move to PENDING_SIGNOFF
- *   SIGNOFF        latest move into PENDING_SIGNOFF -> leaving it (settled, repudiated or returned)
+ *   SIGNOFF        latest move into PENDING_SIGNOFF -> final report signed off, or leaving it (settled, repudiated, returned)
  * Open clocks are AT_RISK from 80% of the target. Clocks that never started on a closed claim are NOT_APPLICABLE.
  */
 export type SlaKey = "INSPECTION" | "PRELIM_REPORT" | "FINAL_REPORT" | "SIGNOFF";
@@ -23,6 +23,8 @@ export interface SlaClaimInput {
   status: ClaimStatus;
   history: Array<{ fromStatus: ClaimStatus | null; toStatus: ClaimStatus; changedAt: Date }>;
   inspections: Array<{ completedDate: Date | null }>;
+  /** When the latest final report was signed off; ends the SIGNOFF clock even if the claim waits for settlement. */
+  signedOffAt?: Date | null;
 }
 export interface SlaClock {
   key: SlaKey;
@@ -58,7 +60,10 @@ export function computeSla(claim: SlaClaimInput, targets: SlaTargetInput[], now 
     })(),
     SIGNOFF: (() => {
       const start = lastTo("PENDING_SIGNOFF");
-      return [start, start ? leaving("PENDING_SIGNOFF", start) : null];
+      if (!start) return [null, null];
+      const left = leaving("PENDING_SIGNOFF", start);
+      const signed = claim.signedOffAt && claim.signedOffAt >= start ? claim.signedOffAt : null;
+      return [start, left && signed ? (left < signed ? left : signed) : (left ?? signed)];
     })(),
   };
 

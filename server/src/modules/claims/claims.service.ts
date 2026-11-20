@@ -137,11 +137,12 @@ export async function getClaim(user: AuthUser, id: number) {
       assignedAdjuster: { select: { id: true, fullName: true, email: true, phone: true, naicomLicenseNo: true, ciiQualification: true } },
       statusHistory: { orderBy: { changedAt: "asc" }, include: { changedBy: { select: { id: true, fullName: true } } } },
       inspections: { where: { deletedAt: null }, orderBy: { scheduledDate: "asc" }, select: { id: true, scheduledDate: true, completedDate: true } },
+      reports: { where: { type: "FINAL", status: "APPROVED" }, orderBy: { reviewedAt: "desc" }, take: 1, select: { reviewedAt: true } },
     },
   });
   const staff = user.role !== "INSURER";
   const sla = computeSla(
-    { dateInstructed: c.dateInstructed, status: c.status, history: c.statusHistory, inspections: c.inspections },
+    { dateInstructed: c.dateInstructed, status: c.status, history: c.statusHistory, inspections: c.inspections, signedOffAt: c.reports[0]?.reviewedAt ?? null },
     await loadSlaTargets(),
   );
 
@@ -153,7 +154,7 @@ export async function getClaim(user: AuthUser, id: number) {
   const allowedTransitions =
     user.role === "INSURER"
       ? []
-      : CLAIM_TRANSITIONS.filter((t) => t.from.includes(c.status) && t.roles.includes(user.role)).map((t) => ({
+      : CLAIM_TRANSITIONS.filter((t) => t.from.includes(c.status) && t.roles.includes(user.role) && !t.viaReport).map((t) => ({
           to: t.to,
           label: t.label,
           reasonRequired: !!t.reasonRequired,
@@ -328,6 +329,8 @@ export interface MoveOptions {
   reason?: string;
   settledAmount?: string;
   ipAddress?: string | null;
+  /** Set by the reports service; the transition endpoint never sets it. */
+  viaReport?: boolean;
 }
 
 /**
@@ -342,7 +345,12 @@ export async function moveClaimStatus(tx: Tx, actor: AuthUser, claimId: number, 
     const allowed = CLAIM_TRANSITIONS.filter((x) => x.from.includes(claim.status)).map((x) => STATUS_LABEL[x.to]);
     throw conflict(`A claim that is "${STATUS_LABEL[claim.status]}" can't move to "${STATUS_LABEL[to]}".`, { allowed });
   }
+  if (t.viaReport && !opts.viaReport) throw conflict(t.viaReport);
   if (!t.roles.includes(actor.role)) throw forbidden(`Only the principal adjuster can ${t.label.toLowerCase()}.`);
+  if (to === "SETTLED") {
+    const final = await tx.report.findFirst({ where: { claimId, type: "FINAL" }, orderBy: { version: "desc" } });
+    if (final?.status !== "APPROVED") throw unprocessable("The final report must be signed off before the claim is settled.");
+  }
   if (to !== "REPUDIATED" && !CLOSED_STATUSES.includes(claim.status) && claim.assignedAdjusterId == null) {
     throw unprocessable("Assign a loss adjuster first.");
   }

@@ -16,6 +16,10 @@ import { evidenceRoutes } from "./modules/evidence/evidence.routes.js";
 import { fileRoutes } from "./modules/evidence/files.routes.js";
 import { inspectionRoutes } from "./modules/inspections/inspections.routes.js";
 import { valuationRoutes } from "./modules/valuation/valuation.routes.js";
+import { reportRoutes } from "./modules/reports/reports.routes.js";
+import { feeNoteRoutes } from "./modules/fee-notes/feeNotes.routes.js";
+import { auditRoutes } from "./modules/audit/audit.routes.js";
+import { firm } from "./lib/firm.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 export function createApp() {
@@ -46,6 +50,13 @@ export function createApp() {
   api.use("/claims/:claimId/inspections", inspectionRoutes);
   api.use("/claims/:claimId/evidence", evidenceRoutes);
   api.use("/claims/:claimId/valuation", valuationRoutes);
+  api.use("/claims/:claimId/reports", reportRoutes);
+  api.use("/claims/:claimId/fee-notes", feeNoteRoutes);
+  api.use("/claims/:claimId/audit", auditRoutes);
+  api.get("/meta/firm", (_req, res) => {
+    const f = firm();
+    res.json({ name: f.name, placeholders: f.placeholders });
+  });
   api.use("/claims", claimRoutes);
   api.use("/dashboard", dashboardRoutes);
   api.use("/policies", policyRoutes);

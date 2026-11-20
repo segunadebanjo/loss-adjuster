@@ -4,8 +4,7 @@ Guidance for Claude Code when working in `loss-adjuster/`. This app is **separat
 in the rest of this repository: it shares no code, database or deployment with it, and the ERP's root `CLAUDE.md` rules
 (Sequelize, ESM JavaScript, `new-backend/`) do **not** apply here. Nothing outside `loss-adjuster/` is touched by this app.
 
-Status: **Phases 1-3 done** (2026-11-20): setup, schema, seed, auth; claims, dashboard, intake, admin; site inspections,
-evidence uploads and the schedule of loss with the settlement engine. Next: Phase 4 (sign-off, audit UI, PDFs).
+Status: **Phases 1-4 done** (2026-11-20): the four planned phases are built. Open items are listed at the end of section 13.
 Decisions marked _(assumption)_ were accepted by the user on 2026-11-20 and can still be changed.
 
 ---
@@ -153,6 +152,7 @@ NEW_INSTRUCTION -> INSPECTION_SCHEDULED -> UNDER_INVESTIGATION -> PRELIM_REPORT_
   reason (report back to DRAFT, claim back to FINAL_REPORT_DRAFTED). An ADMIN can't approve a report they drafted
   unless they're the only admin _(assumption: maker-checker by default, override logged)_.
 - SETTLED needs an approved final report; REPUDIATED needs a reason. Both are terminal (reopen = ADMIN, audited).
+- As built, see section 13 "Workflow coupling": report actions make three of these moves, not buttons.
 - Every move writes `claim_status_history` + `audit_logs` in one transaction.
 
 ## 8. API conventions
@@ -318,7 +318,37 @@ Each phase ends green on build, typecheck, lint and tests, committed and pushed 
     test an upload on a real account before going live.
   - Tests: `workspace.test.ts` (inspections, evidence with real PNG/PDF bytes and a disguised HTML file, signed
     links, the schedule of loss end to end). 72 in all.
-- The firm name in the sidebar ("Pinnacle Loss Adjusters Ltd") is a placeholder until firm settings arrive (Phase 4).
+- **Phase 4 (sign-off, documents, audit):**
+  - **Reports** (`modules/reports`, `/claims/:claimId/reports`): sections per type in `REPORT_SECTIONS` (print order,
+    required flags). Draft (prefilled from the claim, the previous version, or for a final report the signed-off
+    preliminary) -> SUBMITTED (required sections filled; final needs a schedule of loss) -> APPROVED or RETURNED.
+    Submitting freezes everything the PDF prints into `reports.figures` (`snapshot`), so later claim edits never
+    change what is signed off. Approval renders the PDF once (`pdf/reportPdf.ts`), stores it in `reports.pdf_data`
+    (MEDIUMBLOB) with `pdf_sha256`, and every download re-checks the hash (500 `PDF_ALTERED` instead of sending a
+    changed file). Maker-checker: the author can't sign off their own report while another active principal exists;
+    a sole principal must give a note (`self_approval_note`). Insurers see only APPROVED reports (others are 404).
+  - **Workflow coupling:** three moves are `viaReport` in `CLAIM_TRANSITIONS` and refused by `/transition` (409 with
+    where to do it): UNDER_INVESTIGATION -> PRELIM_REPORT_SUBMITTED (approving the preliminary report),
+    -> PENDING_SIGNOFF (submitting the final report, passing through FINAL_REPORT_DRAFTED if needed), and
+    PENDING_SIGNOFF -> FINAL_REPORT_DRAFTED (returning it). SETTLED needs an APPROVED final report. After sign-off the
+    claim stays PENDING_SIGNOFF until settled; the SIGNOFF SLA clock ends at the sign-off (`signedOffAt`).
+  - **Fee notes** (`modules/fee-notes`, principal only to write; adjusters read; insurers see ISSUED/PAID): maths in
+    `lib/feeNote.ts` (VAT on fee + expenses, WHT on the fee only, rates copied onto the note when drafted). The
+    `FN-YYYY-NNNN` number is allocated at issue (`document_sequences`), so issued numbers have no gaps; drafts carry a
+    hidden `DRAFT-...` key. Issue freezes the PDF like a report. Cancelled notes keep number and PDF.
+    `claims.adjuster_fee` = sum of ISSUED/PAID professional fees. Allowed on closed claims (fees follow settlement).
+  - **PDFs** (`src/pdf`, PDFKit): pure builders (data in, Buffer out, no DB, date passed in). Money prints as
+    "NGN 1,234.00" because the built-in PDF fonts have no naira sign; amounts in words via `lib/amountInWords.ts`.
+    Previews are rendered on demand with a DRAFT watermark. Firm details come from `FIRM_*` settings (`lib/firm.ts`);
+    the defaults are `[placeholders]`, and principals see a banner until they are replaced. `GET /meta/firm`.
+  - **Audit trail** `GET /claims/:claimId/audit` (staff): the claim's entries plus its policy's, newest first; IPs
+    only for principals. The client labels actions and from/to changes (`AuditTab.tsx`).
+  - The seed builds reports and fee notes with the same snapshot and PDF code, matching each claim's status.
+  - Tests: `reports.test.ts` (both reports end to end, maker-checker, tamper detection, fee notes, audit),
+    `feeNote.test.ts` (VAT/WHT and amounts in words). 88 in all.
+- **Open items / not built:** WHT rate and its application to expenses need the firm's tax adviser's confirmation;
+  SLA working days ignore public holidays; Cloudinary and S3 have not been exercised against live accounts; users
+  can't change their own password (an admin sets it); no email notifications; no CI job for this folder.
 
 ## 14. Rules for every change
 

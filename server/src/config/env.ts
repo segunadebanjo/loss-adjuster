@@ -23,6 +23,19 @@ const schema = z.object({
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
   S3_BUCKET: z.string().optional(),
   S3_ENDPOINT: z.string().optional(),
+  // Printed on reports and fee notes. The defaults are placeholders: set the real values before issuing documents.
+  FIRM_NAME: z.string().default("Pinnacle Loss Adjusters Ltd"),
+  FIRM_ADDRESS: z.string().default("[Firm address], Lagos"),
+  FIRM_RC_NUMBER: z.string().default("RC [000000]"),
+  FIRM_NAICOM_LICENCE: z.string().default("NAICOM/LA/[0000]"),
+  FIRM_EMAIL: z.string().default("claims@[firm-domain]"),
+  FIRM_PHONE: z.string().default("+234 [000 000 0000]"),
+  FIRM_TIN: z.string().default("[TIN]"),
+  FIRM_BANK_NAME: z.string().default("[Bank name]"),
+  FIRM_ACCOUNT_NAME: z.string().default("[Account name]"),
+  FIRM_ACCOUNT_NUMBER: z.string().default("[0000000000]"),
+  /** Path to a PNG or JPG logo, relative to the server folder. Optional. */
+  FIRM_LOGO_PATH: z.string().default(""),
   VAT_RATE: z.coerce.number().min(0).max(100).default(7.5),
   WHT_RATE: z.coerce.number().min(0).max(100).default(10),
 });

@@ -11,11 +11,14 @@ import { formatNaira } from "@/shared/lib/money";
 import { POLICY_TYPE_LABEL, formatDate, formatDateTime } from "@/shared/lib/claims";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 import { Button, Card, ErrorNote, Spinner } from "@/shared/components/ui";
-import { ComingSoon } from "@/shared/components/ComingSoon";
 import { AssignDialog, DeleteClaimDialog, EditClaimDialog, TransitionDialog } from "./ClaimDialogs";
 import { InspectionTab } from "@/features/workspace/InspectionTab";
 import { EvidenceTab } from "@/features/workspace/EvidenceTab";
 import { ScheduleOfLossTab } from "@/features/workspace/ScheduleOfLossTab";
+import { ReportsTab } from "@/features/workspace/ReportsTab";
+import { FeeNotesTab } from "@/features/workspace/FeeNotesTab";
+import { AuditTab } from "@/features/workspace/AuditTab";
+import { InsurerDocumentsTab } from "@/features/workspace/InsurerDocumentsTab";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -139,12 +142,14 @@ const STAFF_TABS = [
   { key: "inspection", label: "Site Inspection" },
   { key: "evidence", label: "Evidence Gallery" },
   { key: "schedule", label: "Schedule of Loss" },
-  { key: "audit", label: "Audit Trail", phase: 4, text: "Every change to this claim: who, what and when." },
+  { key: "reports", label: "Reports" },
+  { key: "fees", label: "Fee Notes" },
+  { key: "audit", label: "Audit Trail" },
 ] as const;
 const INSURER_TABS = [
   { key: "overview", label: "Overview & Policy" },
   { key: "evidence", label: "Evidence" },
-  { key: "documents", label: "Reports & Fee Notes", phase: 4, text: "Download the approved preliminary and final reports and the fee note." },
+  { key: "documents", label: "Reports & Fee Notes" },
 ] as const;
 
 export function ClaimDetailPage() {
@@ -233,8 +238,14 @@ export function ClaimDetailPage() {
           <EvidenceTab claim={c} readOnly={!staff} />
         ) : current.key === "schedule" ? (
           <ScheduleOfLossTab claim={c} />
-        ) : "phase" in current ? (
-          <ComingSoon title="" phase={current.phase}>{current.text}</ComingSoon>
+        ) : current.key === "reports" ? (
+          <ReportsTab claim={c} />
+        ) : current.key === "fees" ? (
+          <FeeNotesTab claim={c} />
+        ) : current.key === "audit" ? (
+          <AuditTab claim={c} />
+        ) : current.key === "documents" ? (
+          <InsurerDocumentsTab claim={c} />
         ) : null}
       </div>
 

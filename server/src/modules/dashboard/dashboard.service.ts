@@ -30,6 +30,7 @@ export async function dashboardKpis(user: AuthUser, filters: ClaimFilters, now =
       policy: { select: { policyType: true } },
       statusHistory: { select: { fromStatus: true, toStatus: true, changedAt: true } },
       inspections: { where: { deletedAt: null }, select: { completedDate: true, scheduledDate: true } },
+      reports: { where: { type: "FINAL", status: "APPROVED" }, orderBy: { reviewedAt: "desc" }, take: 1, select: { reviewedAt: true } },
     },
   });
   const targets = await loadSlaTargets();
@@ -75,7 +76,7 @@ export async function dashboardKpis(user: AuthUser, filters: ClaimFilters, now =
     return { key, label: t?.label ?? key, targetDays: t?.targetDays ?? 0, businessDays: t?.businessDays ?? false, counts: emptyCounts() };
   });
   for (const c of claims) {
-    for (const clock of computeSla({ dateInstructed: c.dateInstructed, status: c.status, history: c.statusHistory, inspections: c.inspections }, targets, now)) {
+    for (const clock of computeSla({ dateInstructed: c.dateInstructed, status: c.status, history: c.statusHistory, inspections: c.inspections, signedOffAt: c.reports[0]?.reviewedAt ?? null }, targets, now)) {
       const row = sla.find((s) => s.key === clock.key);
       if (row) row.counts[clock.state] += 1;
     }
