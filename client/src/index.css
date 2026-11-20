@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Brand: deep green (Naira-adjacent, calm and formal) */
+  --color-brand-50: #ecf7f1;
+  --color-brand-100: #d2ecdd;
+  --color-brand-500: #198754;
+  --color-brand-600: #157347;
+  --color-brand-700: #0f5132;
+  --color-brand-900: #08291a;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { @apply bg-slate-50 text-slate-900 antialiased; }
+  /* 16px inputs stop iOS zooming in on focus. */
+  input, select, textarea { font-size: 16px; }
+  @media (min-width: 640px) { input, select, textarea { font-size: 14px; } }
+}

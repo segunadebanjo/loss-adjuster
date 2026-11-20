@@ -4,7 +4,8 @@ Guidance for Claude Code when working in `loss-adjuster/`. This app is **separat
 in the rest of this repository: it shares no code, database or deployment with it, and the ERP's root `CLAUDE.md` rules
 (Sequelize, ESM JavaScript, `new-backend/`) do **not** apply here. Nothing outside `loss-adjuster/` is touched by this app.
 
-Status: **plan awaiting confirmation. No application code yet.** Decisions marked _(assumption)_ need confirming.
+Status: **Phase 1 done** (2026-11-20): setup, schema + first migration, seed, auth API, login UI and app shell.
+Decisions marked _(assumption)_ were accepted by the user on 2026-11-20 and can still be changed.
 
 ---
 
@@ -97,7 +98,7 @@ Your requested tables, with the additions in **bold** and why:
   (or S3 key), file_url, **thumbnail_url?**, **mime_type**, **size_bytes**, file_type (`PHOTO`,`DOCUMENT`,`INVOICE`,`VIDEO`),
   category (fixed list: Site Damage Photo, Police Report, Fire Service Report, Waybill/Bill of Lading, Repair
   Estimate/Proforma, Survey Report, Claim Form, Other), caption, **visible_to_insurer** (bool).
-- `valuation_items` — id, claim_id, item_description, category (Building/Civil Works, Plant & Machinery, Motor Parts,
+- `valuation_items` — id, claim_id, item_description, category (Building/Civil Works, Plant & Machinery, Stock & Contents, Motor Parts,
   Marine Cargo, Labor, Salvage Recovery, Other), claimed_amount, assessed_amount, depreciation_amount,
   betterment_deduction, net_payable (**computed by the server, never accepted from the client**), adjuster_notes,
   **sort_order**.
@@ -220,7 +221,40 @@ Ports avoid the ERP's 4000/5173 so both can run side by side.
 
 Each phase ends green on build, typecheck, lint and tests, committed and pushed before the next starts.
 
-## 13. Rules for every change
+## 13. As built (versions and things to know)
+
+- **Versions (pinned exactly):** Node 20+, TypeScript 5.9, Express 5 (async errors reach the error handler natively),
+  Prisma 6.19 (`url = env("DATABASE_URL")` in the schema; Prisma 7's driver adapters are not used), zod 4, vitest 3.2
+  (vitest 4 trips npm's peer resolver), React 18.3, React Router 7 (library mode, `react-router` package), TanStack
+  Query 5, Vite 7, Tailwind 4 (`@tailwindcss/vite`, theme tokens in `client/src/index.css`, brand green `brand-*`).
+- **Soft delete** is a Prisma client extension in `server/src/lib/prisma.ts`: reads on the soft-delete models add
+  `deletedAt: null` unless the `where` names `deletedAt`. **Nested includes are not filtered**: add
+  `where: { deletedAt: null }` to an include of one of those relations. Always import `prisma` from `lib/prisma.ts`,
+  never `new PrismaClient()` (the seed is the one exception: it must see and wipe everything).
+- **Auth:** `modules/auth` (`tokens.ts`, service, controller, routes). Access JWT (HS256, `sub` = user id only, 15 min)
+  in memory on the client; refresh token is opaque random bytes, stored as an HMAC (keyed by `JWT_REFRESH_SECRET`) in
+  `refresh_tokens`, sent as the httpOnly `la_refresh` cookie on `/api/v1/auth`. Rotation is conditional
+  (`updateMany ... revokedAt: null`), so a race can't fork a session; a rotated token reused more than 10 s later
+  revokes every session of that user and writes `REFRESH_TOKEN_REUSE` to the audit log. `authenticate` re-reads the
+  user per request. Wrong password and unknown email give the same 401 message and timing. Login rate limit counts
+  failures only (5 / 15 min per IP + email). Logins, failures and logouts are audited.
+- **Client API:** `client/src/shared/api/client.ts` is the only axios instance: attaches the bearer token, on a 401
+  does one single-flight `/auth/refresh` and retries; if that fails, `AuthProvider` drops to the sign-in page. On page
+  load `AuthProvider` restores the session from the cookie. Role guards (`app/guards.tsx`) and the nav
+  (`app/nav.ts`) are presentation only.
+- **Claim references:** `lib/claimRef.ts` `allocateClaimReference(tx, year)` (INSERT ... ON DUPLICATE KEY UPDATE inside
+  the caller's transaction). The seed numbers claims itself and then writes `claim_sequences`.
+- **Seed** (`prisma/seed.ts`) wipes every table, refuses in production; all fictional: 3 insurers (Lagoon Assurance,
+  Niger Delta General, Sahel Mutual), 2 brokers, principal `principal@pinnacle-adjusters.example`, 4 adjusters + 1
+  inactive, 4 insurer/broker users, 10 policies, 15 claims at every status, inspections, 17 valuation lines. Password:
+  `SEED_PASSWORD`. Seeded `recommended_settlement` figures are illustrative; Phase 3's engine recomputes them.
+- **Tests** (`server/tests`): `globalSetup.ts` creates `la_test_<timestamp>` on the `TEST_DATABASE_URL` server, runs
+  `prisma migrate deploy`, and drops it afterwards; files run one at a time and create their own rows with
+  `tests/helpers.ts`. Covered so far: money maths, auth (login, validation, inactive users, forged tokens, rotation and
+  reuse detection, logout, rate limit) and claim scoping per role, plus soft delete.
+- The firm name in the sidebar ("Pinnacle Loss Adjusters Ltd") is a placeholder until firm settings arrive (Phase 4).
+
+## 14. Rules for every change
 
 - No float money anywhere; use `lib/money.ts`. Server computes every derived figure; client values are never trusted.
 - Every mutating route: `requireRole` + scope check + zod validation + audit entry in the same transaction.

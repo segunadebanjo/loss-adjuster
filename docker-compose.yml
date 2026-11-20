@@ -1,0 +1,31 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: loss-adjuster-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: loss_adjuster
+      MYSQL_USER: la
+      MYSQL_PASSWORD: la
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # Lets the app user create Prisma's shadow database and the test databases.
+      - ./docker/mysql-init.sql:/docker-entrypoint-initdb.d/01-grants.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      retries: 20
+
+  adminer:
+    image: adminer:4
+    profiles: ["tools"]
+    ports:
+      - "8081:8080"
+    depends_on: [mysql]
+
+volumes:
+  mysql-data:

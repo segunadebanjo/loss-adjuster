@@ -1,0 +1,387 @@
+// Loss Adjuster & Claims Management schema (MySQL 8).
+// Conventions (see ../CLAUDE.md section 4): Int ids, createdAt/updatedAt, soft delete via deletedAt,
+// money Decimal(15,2), percentages Decimal(5,2), snake_case tables and columns.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ADJUSTER
+  INSURER
+}
+
+enum OrganisationType {
+  INSURER
+  BROKER
+}
+
+enum PolicyType {
+  MOTOR
+  PROPERTY_FIRE
+  MARINE_CARGO
+  OIL_AND_GAS
+  ENGINEERING_CAR
+  GENERAL_ACCIDENT
+}
+
+enum ClaimStatus {
+  NEW_INSTRUCTION
+  INSPECTION_SCHEDULED
+  UNDER_INVESTIGATION
+  PRELIM_REPORT_SUBMITTED
+  AWAITING_DOCUMENTS
+  FINAL_REPORT_DRAFTED
+  PENDING_SIGNOFF
+  SETTLED
+  REPUDIATED
+}
+
+enum StorageDriver {
+  CLOUDINARY
+  S3
+}
+
+enum EvidenceFileType {
+  PHOTO
+  DOCUMENT
+  INVOICE
+  VIDEO
+}
+
+enum ReportType {
+  PRELIMINARY
+  FINAL
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  RETURNED
+  APPROVED
+}
+
+enum FeeNoteStatus {
+  DRAFT
+  ISSUED
+  PAID
+  CANCELLED
+}
+
+model Organisation {
+  id              Int              @id @default(autoincrement())
+  name            String           @db.VarChar(191)
+  type            OrganisationType
+  naicomLicenceNo String?          @map("naicom_licence_no") @db.VarChar(64)
+  email           String?          @db.VarChar(191)
+  phone           String?          @db.VarChar(32)
+  address         String?          @db.VarChar(500)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  users            User[]
+  insurerPolicies  Policy[] @relation("PolicyInsurer")
+  brokerPolicies   Policy[] @relation("PolicyBroker")
+
+  @@unique([name, type])
+  @@map("organisations")
+}
+
+model User {
+  id               Int           @id @default(autoincrement())
+  fullName         String        @map("full_name") @db.VarChar(191)
+  email            String        @unique @db.VarChar(191)
+  passwordHash     String        @map("password_hash") @db.VarChar(100)
+  role             Role
+  phone            String?       @db.VarChar(32)
+  naicomLicenseNo  String?       @map("naicom_license_no") @db.VarChar(64)
+  ciiQualification String?       @map("cii_qualification") @db.VarChar(64)
+  isActive         Boolean       @default(true) @map("is_active")
+  organisationId   Int?          @map("organisation_id")
+  lastLoginAt      DateTime?     @map("last_login_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  deletedAt        DateTime?     @map("deleted_at")
+
+  organisation      Organisation?        @relation(fields: [organisationId], references: [id])
+  refreshTokens     RefreshToken[]
+  assignedClaims    Claim[]              @relation("ClaimAdjuster")
+  inspections       Inspection[]
+  uploadedFiles     EvidenceFile[]
+  statusChanges     ClaimStatusHistory[]
+  draftedReports    Report[]             @relation("ReportDraftedBy")
+  reviewedReports   Report[]             @relation("ReportReviewedBy")
+  auditLogs         AuditLog[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model RefreshToken {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  tokenHash    String    @unique @map("token_hash") @db.Char(64)
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  replacedById Int?      @map("replaced_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Policy {
+  id               Int        @id @default(autoincrement())
+  policyNumber     String     @map("policy_number") @db.VarChar(64)
+  naicomUid        String     @unique @map("naicom_uid") @db.VarChar(64)
+  insurerOrgId     Int        @map("insurer_org_id")
+  brokerOrgId      Int?       @map("broker_org_id")
+  insurerName      String     @map("insurer_name") @db.VarChar(191)
+  brokerName       String?    @map("broker_name") @db.VarChar(191)
+  insuredName      String     @map("insured_name") @db.VarChar(191)
+  insuredContact   String?    @map("insured_contact") @db.VarChar(255)
+  policyType       PolicyType @map("policy_type")
+  sumInsured       Decimal    @map("sum_insured") @db.Decimal(15, 2)
+  excessAmount     Decimal    @default(0) @map("excess_amount") @db.Decimal(15, 2)
+  excessPercentage Decimal    @default(0) @map("excess_percentage") @db.Decimal(5, 2)
+  startDate        DateTime   @map("start_date") @db.Date
+  endDate          DateTime   @map("end_date") @db.Date
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  deletedAt        DateTime?  @map("deleted_at")
+
+  insurer Organisation  @relation("PolicyInsurer", fields: [insurerOrgId], references: [id])
+  broker  Organisation? @relation("PolicyBroker", fields: [brokerOrgId], references: [id])
+  claims  Claim[]
+
+  @@unique([insurerOrgId, policyNumber])
+  @@index([brokerOrgId])
+  @@map("policies")
+}
+
+model ClaimSequence {
+  year   Int @id
+  lastNo Int @default(0) @map("last_no")
+
+  @@map("claim_sequences")
+}
+
+model Claim {
+  id                    Int         @id @default(autoincrement())
+  claimReference        String      @unique @map("claim_reference") @db.VarChar(32)
+  policyId              Int         @map("policy_id")
+  assignedAdjusterId    Int?        @map("assigned_adjuster_id")
+  insurerClaimNo        String?     @map("insurer_claim_no") @db.VarChar(64)
+  dateOfLoss            DateTime    @map("date_of_loss") @db.Date
+  dateInstructed        DateTime    @map("date_instructed") @db.Date
+  lossState             String      @map("loss_state") @db.VarChar(32)
+  lossLga               String?     @map("loss_lga") @db.VarChar(64)
+  lossAddress           String      @map("loss_address") @db.VarChar(500)
+  incidentDescription   String      @map("incident_description") @db.Text
+  status                ClaimStatus @default(NEW_INSTRUCTION)
+  initialReserve        Decimal     @default(0) @map("initial_reserve") @db.Decimal(15, 2)
+  valueAtRisk           Decimal?    @map("value_at_risk") @db.Decimal(15, 2)
+  applyAverage          Boolean     @default(false) @map("apply_average")
+  recommendedSettlement Decimal?    @map("recommended_settlement") @db.Decimal(15, 2)
+  settledAmount         Decimal?    @map("settled_amount") @db.Decimal(15, 2)
+  adjusterFee           Decimal?    @map("adjuster_fee") @db.Decimal(15, 2)
+  repudiationReason     String?     @map("repudiation_reason") @db.Text
+  closedAt              DateTime?   @map("closed_at")
+  createdAt             DateTime    @default(now()) @map("created_at")
+  updatedAt             DateTime    @updatedAt @map("updated_at")
+  deletedAt             DateTime?   @map("deleted_at")
+
+  policy          Policy               @relation(fields: [policyId], references: [id])
+  assignedAdjuster User?               @relation("ClaimAdjuster", fields: [assignedAdjusterId], references: [id])
+  statusHistory   ClaimStatusHistory[]
+  inspections     Inspection[]
+  evidenceFiles   EvidenceFile[]
+  valuationItems  ValuationItem[]
+  reports         Report[]
+  feeNotes        FeeNote[]
+  auditLogs       AuditLog[]
+
+  @@index([status])
+  @@index([assignedAdjusterId])
+  @@index([policyId])
+  @@index([dateInstructed])
+  @@map("claims")
+}
+
+model ClaimStatusHistory {
+  id         Int          @id @default(autoincrement())
+  claimId    Int          @map("claim_id")
+  fromStatus ClaimStatus? @map("from_status")
+  toStatus   ClaimStatus  @map("to_status")
+  changedById Int?        @map("changed_by")
+  reason     String?      @db.Text
+  changedAt  DateTime     @default(now()) @map("changed_at")
+
+  claim     Claim @relation(fields: [claimId], references: [id])
+  changedBy User? @relation(fields: [changedById], references: [id])
+
+  @@index([claimId, changedAt])
+  @@map("claim_status_history")
+}
+
+model Inspection {
+  id                      Int       @id @default(autoincrement())
+  claimId                 Int       @map("claim_id")
+  adjusterId              Int       @map("adjuster_id")
+  scheduledDate           DateTime  @map("scheduled_date")
+  completedDate           DateTime? @map("completed_date")
+  gpsLatitude             Decimal?  @map("gps_latitude") @db.Decimal(9, 6)
+  gpsLongitude            Decimal?  @map("gps_longitude") @db.Decimal(9, 6)
+  siteNotes               String?   @map("site_notes") @db.Text
+  causeOfLossVerified     Boolean   @default(false) @map("cause_of_loss_verified")
+  policyLiabilityConfirmed Boolean  @default(false) @map("policy_liability_confirmed")
+  thirdPartyInvolvement   Boolean   @default(false) @map("third_party_involvement")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  deletedAt               DateTime? @map("deleted_at")
+
+  claim    Claim @relation(fields: [claimId], references: [id])
+  adjuster User  @relation(fields: [adjusterId], references: [id])
+
+  @@index([claimId])
+  @@index([adjusterId, scheduledDate])
+  @@map("inspections")
+}
+
+model EvidenceFile {
+  id               Int              @id @default(autoincrement())
+  claimId          Int              @map("claim_id")
+  uploadedById     Int              @map("uploaded_by")
+  fileName         String           @map("file_name") @db.VarChar(255)
+  storageDriver    StorageDriver    @map("storage_driver")
+  cloudPublicId    String           @map("cloud_public_id") @db.VarChar(512)
+  fileUrl          String           @map("file_url") @db.VarChar(1024)
+  thumbnailUrl     String?          @map("thumbnail_url") @db.VarChar(1024)
+  mimeType         String           @map("mime_type") @db.VarChar(127)
+  sizeBytes        Int              @map("size_bytes")
+  fileType         EvidenceFileType @map("file_type")
+  category         String           @db.VarChar(64)
+  caption          String?          @db.VarChar(500)
+  visibleToInsurer Boolean          @default(false) @map("visible_to_insurer")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  deletedAt        DateTime?        @map("deleted_at")
+
+  claim      Claim @relation(fields: [claimId], references: [id])
+  uploadedBy User  @relation(fields: [uploadedById], references: [id])
+
+  @@index([claimId])
+  @@map("evidence_files")
+}
+
+model ValuationItem {
+  id                  Int       @id @default(autoincrement())
+  claimId             Int       @map("claim_id")
+  itemDescription     String    @map("item_description") @db.VarChar(500)
+  category            String    @db.VarChar(64)
+  claimedAmount       Decimal   @default(0) @map("claimed_amount") @db.Decimal(15, 2)
+  assessedAmount      Decimal   @default(0) @map("assessed_amount") @db.Decimal(15, 2)
+  depreciationAmount  Decimal   @default(0) @map("depreciation_amount") @db.Decimal(15, 2)
+  bettermentDeduction  Decimal  @default(0) @map("betterment_deduction") @db.Decimal(15, 2)
+  netPayable          Decimal   @default(0) @map("net_payable") @db.Decimal(15, 2)
+  adjusterNotes       String?   @map("adjuster_notes") @db.Text
+  sortOrder           Int       @default(0) @map("sort_order")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
+
+  claim Claim @relation(fields: [claimId], references: [id])
+
+  @@index([claimId, sortOrder])
+  @@map("valuation_items")
+}
+
+model Report {
+  id             Int          @id @default(autoincrement())
+  claimId        Int          @map("claim_id")
+  type           ReportType
+  version        Int          @default(1)
+  status         ReportStatus @default(DRAFT)
+  body           Json
+  figures        Json?
+  draftedById    Int          @map("drafted_by")
+  submittedAt    DateTime?    @map("submitted_at")
+  reviewedById   Int?         @map("reviewed_by")
+  reviewedAt     DateTime?    @map("reviewed_at")
+  returnReason   String?      @map("return_reason") @db.Text
+  pdfUrl         String?      @map("pdf_url") @db.VarChar(1024)
+  pdfSha256      String?      @map("pdf_sha256") @db.Char(64)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  claim      Claim @relation(fields: [claimId], references: [id])
+  draftedBy  User  @relation("ReportDraftedBy", fields: [draftedById], references: [id])
+  reviewedBy User? @relation("ReportReviewedBy", fields: [reviewedById], references: [id])
+
+  @@unique([claimId, type, version])
+  @@map("reports")
+}
+
+model FeeNote {
+  id               Int           @id @default(autoincrement())
+  claimId          Int           @map("claim_id")
+  feeNoteNo        String        @unique @map("fee_note_no") @db.VarChar(32)
+  professionalFee  Decimal       @map("professional_fee") @db.Decimal(15, 2)
+  expenses         Json
+  vatRate          Decimal       @map("vat_rate") @db.Decimal(5, 2)
+  whtRate          Decimal       @map("wht_rate") @db.Decimal(5, 2)
+  grossAmount      Decimal       @map("gross_amount") @db.Decimal(15, 2)
+  vatAmount        Decimal       @map("vat_amount") @db.Decimal(15, 2)
+  whtAmount        Decimal       @map("wht_amount") @db.Decimal(15, 2)
+  netPayable       Decimal       @map("net_payable") @db.Decimal(15, 2)
+  status           FeeNoteStatus @default(DRAFT)
+  issuedAt         DateTime?     @map("issued_at")
+  paidAt           DateTime?     @map("paid_at")
+  pdfUrl           String?       @map("pdf_url") @db.VarChar(1024)
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  claim Claim @relation(fields: [claimId], references: [id])
+
+  @@index([claimId])
+  @@map("fee_notes")
+}
+
+model SlaTarget {
+  key          String   @id @db.VarChar(64)
+  label        String   @db.VarChar(191)
+  targetDays   Int      @map("target_days")
+  businessDays Boolean  @default(true) @map("business_days")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("sla_targets")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  claimId    Int?     @map("claim_id")
+  userId     Int?     @map("user_id")
+  action     String   @db.VarChar(64)
+  entityType String   @map("entity_type") @db.VarChar(64)
+  entityId   Int?     @map("entity_id")
+  details    Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  claim Claim? @relation(fields: [claimId], references: [id])
+  user  User?  @relation(fields: [userId], references: [id])
+
+  @@index([claimId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
