@@ -136,7 +136,7 @@ Unit tests cover: no average, average triggered, fixed vs % excess winning, salv
 
 ## 6. Fee note maths (`server/src/lib/feeNote.ts`, pure)
 
-`gross = fee + expenses`; `VAT = 7.5% × gross`; `WHT = wht_rate × fee` (on the fee, excluding VAT);
+`gross = fee + expenses`; `VAT = 7.5% × fee` (expenses pass through without VAT: the user's choice, 2026-11-20, to match their fee-note template; it was on fee + expenses before); `WHT = wht_rate × fee` (on the fee, excluding VAT);
 `net payable by insurer = gross + VAT − WHT`. Defaults from env/settings: `VAT_RATE=7.5`, `WHT_RATE=10` _(assumption:
 company-to-company professional services; confirm with your tax adviser, and whether WHT should also apply to
 reimbursable expenses)_. Rates are copied onto the fee note when created, so a later rate change never alters an issued one.
@@ -390,8 +390,16 @@ Each phase ends green on build, typecheck, lint and tests, committed and pushed 
     `?feeNoteId=` picks one). Both under `/api/v1` like everything else.
   - Tests: `pdfAndApproval.test.ts` (apportioning, tiers, naira formatting, co-insurance rules, two-principal sign-off with
     return, fee note by claim, co-adjuster, a real Chrome render with escaping and watermark). 97 in all.
-- **Open items / not built:** the firm's two HTML templates are not in the repository yet (until they are, PDFs come from
-  PDFKit); the fee-note view's variable names were chosen before its template was seen and must be checked against it; WHT rate and its application to expenses need the firm's tax adviser's confirmation;
+  - **The firm's templates** arrived 2026-11-20. The report file stopped inside section 7; the app completed it (rest of the
+    co-insurance table, basis of adjustment, reserve / documents / next steps for a preliminary report, recommendation,
+    conclusion, sign-off block with every approver and the tier, footer), marked by a comment. The fee note's fields
+    (`feeNote.*`, `firm.vatNumber` = `FIRM_VAT_NUMBER`, `coInsurers[].feeShare/vatShare/totalShareDue`) are mapped in
+    `feeNoteView`; its due date is 10 working days after issue. Its "ILAN / NIA sliding scale" table has one line (the
+    typed, agreed fee against the net adjusted loss, or the agreed settlement once settled) until the firm supplies the scale
+    bands. Issuing a draft recomputes its figures first, so drafts made under the old VAT basis are corrected.
+  - A template that fails to compile or fill, or a Chrome failure, is logged (`PDF TEMPLATE FAILED`) and the PDFKit layout
+    is used, so sign-off and issue never fail on a document. 99 tests.
+- **Open items / not built:** the ILAN/NIA fee sliding scale (needs the firm's bands and rates); WHT rate and its application to expenses need the firm's tax adviser's confirmation;
   SLA working days ignore public holidays; Cloudinary and S3 have not been exercised against live accounts; users
   can't change their own password (an admin sets it); no email notifications.
 

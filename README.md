@@ -51,7 +51,7 @@ The demo data loads only into an empty database; the admin setting changes only 
 ## Before issuing real documents
 
 Reports and fee notes print the firm's details from the `FIRM_*` settings in `server/.env` (name, address, RC number,
-NAICOM licence, contact, TIN, bank account, optional logo). Until they are set, the documents show `[placeholders]`
+NAICOM licence, contact, TIN, VAT registration number `FIRM_VAT_NUMBER`, bank account, optional logo). Until they are set, the documents show `[placeholders]`
 and principals see a reminder. VAT and WHT rates are `VAT_RATE` and `WHT_RATE`.
 
 The layout comes from two HTML templates in `server/src/templates/` (`loss-adjustment-report.template.html` and

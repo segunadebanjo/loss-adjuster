@@ -211,11 +211,11 @@ describe("fee notes", () => {
     expect((await adjuster.post(base, body)).status).toBe(403);
     expect((await insurer.post(base, body)).status).toBe(403);
     const draft = (await principal.post(base, body)).body.data;
-    expect(draft).toMatchObject({ status: "DRAFT", feeNoteNo: null, grossAmount: "1200000.00", vatAmount: "90000.00", invoiceTotal: "1290000.00", whtAmount: "100000.00", netPayable: "1190000.00", vatRate: "7.50", whtRate: "10.00" });
+    expect(draft).toMatchObject({ status: "DRAFT", feeNoteNo: null, grossAmount: "1200000.00", vatAmount: "75000.00", invoiceTotal: "1275000.00", whtAmount: "100000.00", netPayable: "1175000.00", vatRate: "7.50", whtRate: "10.00" });
     expect((await insurer.get(base)).body.data).toEqual([]);
     expect((await adjuster.get(base)).body.data).toHaveLength(1);
     const edited = (await principal.patch(`${base}/${draft.id}`, { professionalFee: "800000" })).body.data;
-    expect(edited.netPayable).toBe("995000.00"); // 800k fee + 200k expenses + 75k VAT - 80k WHT; expenses kept
+    expect(edited.netPayable).toBe("980000.00"); // 800k fee + 200k expenses + 60k VAT (fee only) - 80k WHT; expenses kept
 
     const issued = (await principal.post(`${base}/${draft.id}/issue`)).body.data;
     expect(issued.feeNoteNo).toMatch(/^FN-\d{4}-\d{4}$/);

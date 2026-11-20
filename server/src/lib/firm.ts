@@ -10,6 +10,7 @@ export interface Firm {
   email: string;
   phone: string;
   tin: string;
+  vatNumber: string;
   bank: { name: string; accountName: string; accountNumber: string };
   logoPath: string | null;
   /** True while any detail is still a "[placeholder]". */
@@ -26,10 +27,11 @@ export function firm(): Firm {
     email: env.FIRM_EMAIL,
     phone: env.FIRM_PHONE,
     tin: env.FIRM_TIN,
+    vatNumber: env.FIRM_VAT_NUMBER,
     bank: { name: env.FIRM_BANK_NAME, accountName: env.FIRM_ACCOUNT_NAME, accountNumber: env.FIRM_ACCOUNT_NUMBER },
     // A missing logo file gives an unbranded document rather than an error.
     logoPath: logo && existsSync(logo) ? logo : null,
   };
-  const text = [f.address, f.rcNumber, f.naicomLicence, f.email, f.phone, f.tin, f.bank.name, f.bank.accountName, f.bank.accountNumber].join(" ");
+  const text = [f.address, f.rcNumber, f.naicomLicence, f.email, f.phone, f.tin, f.vatNumber, f.bank.name, f.bank.accountName, f.bank.accountNumber].join(" ");
   return { ...f, placeholders: /\[[^\]]*\]/.test(text) };
 }

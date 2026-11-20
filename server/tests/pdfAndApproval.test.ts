@@ -11,7 +11,8 @@ import { matrixProblem, tierFor } from "../src/lib/approvalMatrix.js";
 import { formatNaira } from "../src/pdf/handlebars.js";
 import { closePdfBrowser, renderHtml, renderReportPdf, TEMPLATE_FILES } from "../src/pdf/pdfGenerator.js";
 import { createHandlebars } from "../src/pdf/handlebars.js";
-import { reportView } from "../src/pdf/views.js";
+import { feeNoteView, reportView } from "../src/pdf/views.js";
+import { computeFeeNote } from "../src/lib/feeNote.js";
 import { firm } from "../src/lib/firm.js";
 import { makeOrg, makeUser, signIn } from "./helpers.js";
 
@@ -236,4 +237,36 @@ describe("HTML templates through headless Chrome", () => {
       env.TEMPLATES_DIR = before;
     }
   }, 60_000);
+
+  it("falls back to the built-in layout when a template is broken, so sign-off never fails", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "la-broken-"));
+    writeFileSync(path.join(dir, TEMPLATE_FILES.report), "<html><body>{{#if coInsurers.length}}<table>");
+    const before = env.TEMPLATES_DIR;
+    env.TEMPLATES_DIR = dir;
+    try {
+      const out = await renderReportPdf({
+        firm: firm(), type: "PRELIMINARY", version: 1, approved: false, date: new Date(),
+        claim: { reference: "LA-1", insurerClaimNo: null, dateOfLoss: "2026-10-01", dateInstructed: "2026-10-02", location: "Lagos", initialReserve: "0.00" },
+        policy: { insuredName: "X", policyNumber: "P", naicomUid: "U", className: "Motor", period: "a to b", sumInsured: "1.00", excess: "None" },
+        insurer: { name: "I", address: null }, broker: null, adjuster: null, approver: null, inspection: null, sections: [],
+      });
+      expect(out.toString("latin1")).toMatch(/PDFKit/);
+    } finally {
+      env.TEMPLATES_DIR = before;
+    }
+  });
+
+  it("gives the fee note template its figures, with co-insurer columns that add up", () => {
+    const figures = computeFeeNote({ professionalFee: "6500000", expenses: [{ description: "Travel", amount: "1650000" }], vatRate: "7.5", whtRate: "10" });
+    const v = feeNoteView({
+      firm: firm(), number: "FN-2026-0001", status: "ISSUED", date: new Date("2026-11-20T10:00:00Z"),
+      insurer: { name: "Lead", address: null },
+      claim: { reference: "LA-1", insurerClaimNo: null, insuredName: "X", policyNumber: "P", dateOfLoss: "2026-10-01", className: "Oil & Gas" },
+      expenses: [{ description: "Travel", amount: "1650000" }], figures, notes: null,
+      coInsurers: [{ name: "Lead", role: "LEAD", sharePercent: "60" }, { name: "B", role: "FOLLOWER", sharePercent: "25" }, { name: "C", role: "FOLLOWER", sharePercent: "15" }],
+      basis: { type: "Net adjusted loss", amount: "412200000.00" },
+    });
+    expect(v.feeNote).toMatchObject({ vatAmount: "487500.00", grossTotalPayable: "8637500.00", expectedWhtAmount: "650000.00", dueDate: "4 December 2026" });
+    expect(v.coInsurers.map((c) => c.totalShareDue)).toEqual(["5182500.00", "2159375.00", "1295625.00"]);
+  });
 });

@@ -318,3 +318,89 @@
         <th>Participating Insurer</th>
         <th>Role</th>
         <th class="num">Share (%)</th>
+        <th class="num">Share of Net Payable (&#8358;)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each coInsurers}}
+      <tr>
+        <td>{{this.name}}</td>
+        <td>{{this.roleLabel}}</td>
+        <td class="num">{{this.sharePercent}}</td>
+        <td class="num">{{formatCurrency this.shareAmount}}</td>
+      </tr>
+      {{/each}}
+      <tr class="bold-row">
+        <td colspan="3">Total (100%)</td>
+        <td class="num">{{formatCurrency quantum.netAdjustedPayable}}</td>
+      </tr>
+    </tbody>
+  </table>
+  {{/if}}
+
+  <!-- (Completed by the app on 2026-11-20: the uploaded file ended inside the table above.) -->
+
+  {{#if narrative.quantum}}
+  <h2 class="section-title">Basis of Adjustment</h2>
+  <p>{{narrative.quantum}}</p>
+  {{/if}}
+
+  {{#if narrative.reserve}}
+  <h2 class="section-title">Reserve Recommendation</h2>
+  <p>{{narrative.reserve}}</p>
+  {{/if}}
+
+  {{#if narrative.documentsRequired}}
+  <h2 class="section-title">Documents Required</h2>
+  <p>{{narrative.documentsRequired}}</p>
+  {{/if}}
+
+  {{#if narrative.nextSteps}}
+  <h2 class="section-title">Next Steps</h2>
+  <p>{{narrative.nextSteps}}</p>
+  {{/if}}
+
+  {{#if narrative.recommendation}}
+  <h2 class="section-title">Recommendation</h2>
+  <div class="callout-box">
+    <p>{{narrative.recommendation}}</p>
+    <p style="margin-bottom:0;"><strong>Recommended Net Settlement:</strong> &#8358;{{formatCurrency quantum.netAdjustedPayable}}</p>
+  </div>
+  {{/if}}
+
+  {{#if narrative.conclusion}}
+  <h2 class="section-title">Conclusion</h2>
+  <p>{{narrative.conclusion}}</p>
+  {{/if}}
+
+  <!-- SIGN-OFF -->
+  <div class="signoff-grid">
+    <div class="signoff-box">
+      <strong>Prepared by (Loss Adjuster):</strong><br />
+      {{#if adjuster}}
+        {{adjuster.fullName}}{{#if adjuster.qualification}}, {{adjuster.qualification}}{{/if}}<br />
+        {{#if adjuster.licence}}NAICOM Licence: {{adjuster.licence}}{{/if}}
+      {{else}}
+        &mdash;
+      {{/if}}
+    </div>
+    <div class="signoff-box">
+      <strong>Approved by (Principal Adjuster):</strong><br />
+      {{#if approvers.length}}
+        {{#each approvers}}
+          {{this.fullName}}{{#if this.qualification}}, {{this.qualification}}{{/if}} &mdash; signed off electronically on {{this.approvedOn}}<br />
+        {{/each}}
+        {{#if approvalTier}}<span style="font-size:8.5pt;color:#64748b;">Approval tier: {{approvalTier.label}} ({{approvalTier.requiredApprovals}} sign-off(s) required)</span>{{/if}}
+      {{else}}
+        Awaiting sign-off
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>{{firm.name}} &bull; {{claimReference}}{{#if version}} &bull; Version {{version}}{{/if}}</span>
+    <span>Strict &amp; Confidential &bull; Without Prejudice</span>
+  </div>
+
+</body>
+</html>

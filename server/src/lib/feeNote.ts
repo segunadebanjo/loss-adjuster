@@ -3,7 +3,7 @@ import { fromKobo, percentOf, toKobo } from "./money.js";
 /**
  * Fee note maths (CLAUDE.md section 6). Pure, integer kobo.
  *   gross = professional fee + expenses
- *   VAT   = VAT rate x gross
+ *   VAT   = VAT rate x professional fee       (reimbursable expenses pass through without VAT; the user's choice, 2026-11-20)
  *   WHT   = WHT rate x professional fee        (withheld by the insurer; not charged on expenses or VAT)
  *   net   = gross + VAT - WHT                  (what the insurer pays the firm)
  */
@@ -30,7 +30,7 @@ export function computeFeeNote(input: FeeNoteInput): FeeNoteFigures {
   const fee = toKobo(input.professionalFee);
   const expenses = input.expenses.reduce((sum, e) => sum + toKobo(e.amount), 0n);
   const gross = fee + expenses;
-  const vat = percentOf(gross, input.vatRate);
+  const vat = percentOf(fee, input.vatRate);
   const wht = percentOf(fee, input.whtRate);
   return {
     professionalFee: fromKobo(fee),

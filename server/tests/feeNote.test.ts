@@ -3,7 +3,7 @@ import { computeFeeNote } from "../src/lib/feeNote.js";
 import { nairaInWords } from "../src/lib/amountInWords.js";
 
 describe("computeFeeNote", () => {
-  it("charges VAT on fee + expenses and withholds WHT on the fee only", () => {
+  it("charges VAT and withholds WHT on the professional fee only (expenses pass through)", () => {
     const f = computeFeeNote({
       professionalFee: "1000000",
       expenses: [{ description: "Travel to Port Harcourt", amount: "150000" }, { description: "Photographs", amount: "50000" }],
@@ -15,11 +15,11 @@ describe("computeFeeNote", () => {
       expensesTotal: "200000.00",
       grossAmount: "1200000.00",
       vatRate: "7.50",
-      vatAmount: "90000.00",
-      invoiceTotal: "1290000.00",
+      vatAmount: "75000.00",
+      invoiceTotal: "1275000.00",
       whtRate: "10.00",
       whtAmount: "100000.00",
-      netPayable: "1190000.00",
+      netPayable: "1175000.00",
     });
   });
   it("rounds VAT and WHT to the kobo", () => {

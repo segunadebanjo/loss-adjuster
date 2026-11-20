@@ -40,3 +40,15 @@ export function businessDaysBetween(a: Date, b: Date): number {
   }
   return days;
 }
+
+/** The Lagos calendar day `n` working days (Mon-Fri; public holidays not counted) after `from`, as YYYY-MM-DD. */
+export function addWorkingDays(from: Date, n: number): string {
+  const d = new Date(`${todayLagos(from)}T12:00:00Z`);
+  let left = n;
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  return d.toISOString().slice(0, 10);
+}

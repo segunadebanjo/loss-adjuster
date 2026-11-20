@@ -32,7 +32,9 @@ function template(key: TemplateKey): HandlebarsTemplateDelegate | null {
   const { mtimeMs } = statSync(file);
   const hit = compiled.get(file);
   if (hit && hit.mtimeMs === mtimeMs) return hit.render;
-  const render = hb.compile(readFileSync(file, "utf8"), { strict: false });
+  const source = readFileSync(file, "utf8");
+  hb.precompile(source); // throws now on a syntax error (compile() would only throw on first use)
+  const render = hb.compile(source, { strict: false });
   compiled.set(file, { mtimeMs, render });
   return render;
 }
@@ -113,15 +115,28 @@ export function rendererFor(key: TemplateKey): "html" | "pdfkit" {
   return env.PDF_RENDERER === "html" && template(key) ? "html" : "pdfkit";
 }
 
+/**
+ * A broken template (it doesn't compile or fill) or a Chrome failure must never block a sign-off or an issue: it is
+ * logged loudly and the PDFKit layout is used instead.
+ */
+async function viaTemplate(key: TemplateKey, html: (render: HandlebarsTemplateDelegate) => string, fallback: () => Promise<Buffer>) {
+  if (env.PDF_RENDERER !== "html") return fallback();
+  let render: HandlebarsTemplateDelegate | null;
+  try {
+    render = template(key);
+    if (!render) return fallback();
+    return await htmlToPdf(html(render));
+  } catch (err) {
+    console.error(`PDF TEMPLATE FAILED (${TEMPLATE_FILES[key]}), using the built-in layout: ${err instanceof Error ? err.message : String(err)}`);
+    return fallback();
+  }
+}
+
 export async function renderReportPdf(m: ReportPdfModel): Promise<Buffer> {
-  const render = env.PDF_RENDERER === "html" ? template("report") : null;
-  if (!render) return buildReportPdf(m);
-  return htmlToPdf(renderHtml(render, reportView(m), m.approved ? null : "DRAFT / PREVIEW"));
+  return viaTemplate("report", (render) => renderHtml(render, reportView(m), m.approved ? null : "DRAFT / PREVIEW"), () => buildReportPdf(m));
 }
 
 export async function renderFeeNotePdf(m: FeeNotePdfModel): Promise<Buffer> {
-  const render = env.PDF_RENDERER === "html" ? template("feeNote") : null;
-  if (!render) return buildFeeNotePdf(m);
   const mark = m.status === "DRAFT" ? "DRAFT / PREVIEW" : m.status === "CANCELLED" ? "CANCELLED" : null;
-  return htmlToPdf(renderHtml(render, feeNoteView(m), mark));
+  return viaTemplate("feeNote", (render) => renderHtml(render, feeNoteView(m), mark), () => buildFeeNotePdf(m));
 }

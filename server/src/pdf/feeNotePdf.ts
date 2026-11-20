@@ -17,6 +17,8 @@ export interface FeeNotePdfModel {
   coInsurers?: Array<{ name: string; role: "LEAD" | "FOLLOWER"; sharePercent: string }>;
   coAdjuster?: { firmName: string; naicomNo: string | null; splitPercent: string | null } | null;
   amountInWords?: string;
+  /** What the fee is measured against, e.g. the net adjusted loss. */
+  basis?: { type: string; amount: string | null };
 }
 
 export async function buildFeeNotePdf(m: FeeNotePdfModel): Promise<Buffer> {
@@ -45,7 +47,7 @@ export async function buildFeeNotePdf(m: FeeNotePdfModel): Promise<Buffer> {
       ["Professional fee for loss adjusting services", money(f.professionalFee)],
       ...m.expenses.map((e) => [`Expense: ${e.description}`, money(e.amount)]),
       ["Subtotal", money(f.grossAmount)],
-      [`VAT at ${Number(f.vatRate)}%`, money(f.vatAmount)],
+      [`VAT at ${Number(f.vatRate)}% of the professional fee`, money(f.vatAmount)],
       ["Total due (including VAT)", money(f.invoiceTotal)],
       [`Less withholding tax at ${Number(f.whtRate)}% of the professional fee`, `(${money(f.whtAmount)})`],
       ["Net amount payable", money(f.netPayable)],

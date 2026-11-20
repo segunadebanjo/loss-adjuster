@@ -33,6 +33,7 @@ const schema = z.object({
   FIRM_EMAIL: z.string().default("claims@[firm-domain]"),
   FIRM_PHONE: z.string().default("+234 [000 000 0000]"),
   FIRM_TIN: z.string().default("[TIN]"),
+  FIRM_VAT_NUMBER: z.string().default("[VAT registration no.]"),
   FIRM_BANK_NAME: z.string().default("[Bank name]"),
   FIRM_ACCOUNT_NAME: z.string().default("[Account name]"),
   FIRM_ACCOUNT_NUMBER: z.string().default("[0000000000]"),

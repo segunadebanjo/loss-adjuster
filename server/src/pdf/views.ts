@@ -7,9 +7,10 @@ import type { FeeNotePdfModel } from "./feeNotePdf.js";
 import type { ReportPdfModel } from "./reportPdf.js";
 import Handlebars from "handlebars";
 import { formatDate } from "./handlebars.js";
+import { addWorkingDays } from "../lib/dates.js";
 
 /** Typed text for a template's {{field}}: escaped here, with line breaks kept as <br>, so the template needn't care. */
-const text = (t: string | undefined) => new Handlebars.SafeString(Handlebars.escapeExpression(t ?? "").replace(/\r?\n/g, "<br>"));
+const text = (t: string | undefined) => !t?.trim() ? "" : new Handlebars.SafeString(Handlebars.escapeExpression(t ?? "").replace(/\r?\n/g, "<br>"));
 
 /** The firm as the templates see it; the logo is inlined so the page needs no network. */
 function firmView(f: Firm) {
@@ -111,54 +112,59 @@ export function reportView(m: ReportPdfModel) {
   };
 }
 
-/** Everything fee-note.template.html reads, including the co-insurance debit schedule. */
+/** Everything fee-note.template.html reads, including the co-insurance apportionment. */
 export function feeNoteView(m: FeeNotePdfModel) {
   const f = m.figures;
   const shares = m.coInsurers ?? [];
+  const basisAmount = m.basis?.amount ?? null;
+  // The professional fee is typed as one agreed amount (no sliding scale yet), so the scale table has one line; the rate
+  // shown is what that fee is as a share of the fee basis.
+  const rate = basisAmount && toKobo(basisAmount) > 0n ? (Number((toKobo(f.professionalFee) * 10000n) / toKobo(basisAmount)) / 100).toFixed(2) : "-";
+  const fees = apportion(f.grossAmount, shares);
+  const vats = apportion(f.vatAmount, shares);
+  const coAdjuster = m.coAdjuster
+    ? (() => {
+        const split = m.coAdjuster.splitPercent ?? "0";
+        const parts = apportion(f.professionalFee, [{ name: m.firm.name, role: "LEAD", sharePercent: fromKobo(10000n - toKobo(split)) }, { name: m.coAdjuster.firmName, role: "FOLLOWER", sharePercent: split }]);
+        return { firmName: m.coAdjuster.firmName, naicomRacNumber: m.coAdjuster.naicomNo ?? "", splitPercent: Number(split).toString(), ourShare: parts[0]!.amount, theirShare: parts[1]!.amount };
+      })()
+    : null;
   return {
-    firm: firmView(m.firm),
-    feeNoteNumber: m.number,
-    status: m.status,
-    isDraft: m.status === "DRAFT",
-    isCancelled: m.status === "CANCELLED",
-    feeNoteDate: formatDate(m.date),
-    insurer: m.insurer,
-    claim: { ...m.claim, ourReference: m.claim.reference, insurerReference: m.claim.insurerClaimNo ?? "", dateOfLoss: formatDate(m.claim.dateOfLoss) },
-    fees: {
-      professionalFee: f.professionalFee,
+    firm: { ...firmView(m.firm), bankName: m.firm.bank.name, bankAccountName: m.firm.bank.accountName, bankAccountNumber: m.firm.bank.accountNumber },
+    feeNote: {
+      number: m.number,
+      status: m.status,
+      issueDate: formatDate(m.date),
+      // NAICOM market conduct: loss adjusters' fees are payable within 10 working days.
+      dueDate: formatDate(addWorkingDays(m.date, 10)),
+      basisType: m.basis?.type ?? "Net adjusted loss",
+      basisAmount: basisAmount ?? "0.00",
+      scaleBreakdown: [{ label: "Professional adjusting fee (as agreed)", bandAmount: basisAmount ?? "0.00", ratePercent: rate, feeAmount: f.professionalFee }],
+      professionalFeeSubtotal: f.professionalFee,
       expenses: m.expenses,
-      totalExpenses: fromKobo(m.expenses.reduce((a, e) => a + toKobo(e.amount), 0n)),
-      subtotal: f.grossAmount,
+      expensesSubtotal: f.expensesTotal,
       vatRate: Number(f.vatRate).toString(),
       vatAmount: f.vatAmount,
-      invoiceTotal: f.invoiceTotal,
+      grossTotalPayable: f.invoiceTotal,
       whtRate: Number(f.whtRate).toString(),
-      whtAmount: f.whtAmount,
-      netPayable: f.netPayable,
-      amountInWords: m.amountInWords,
+      expectedWhtAmount: f.whtAmount,
+      netAfterWht: f.netPayable,
+      amountInWords: m.amountInWords ?? "",
+      notes: text(m.notes ?? ""),
     },
-    coAdjuster: m.coAdjuster
-      ? (() => {
-          const split = m.coAdjuster.splitPercent ?? "0";
-          const theirs = apportion(f.professionalFee, [{ name: m.firm.name, role: "LEAD", sharePercent: fromKobo(10000n - toKobo(split)) }, { name: m.coAdjuster.firmName, role: "FOLLOWER", sharePercent: split }]);
-          return { firmName: m.coAdjuster.firmName, naicomRacNumber: m.coAdjuster.naicomNo ?? "", splitPercent: Number(split).toString(), ourShare: theirs[0]!.amount, theirShare: theirs[1]!.amount };
-        })()
-      : null,
-    // Each co-insurer is debited its share of every figure; residues go to the lead so the columns add up.
-    coInsurers: shares.length
-      ? shares.map((c, i) => ({
-          name: c.name,
-          role: c.role,
-          roleLabel: c.role === "LEAD" ? "Lead" : "Follower",
-          sharePercent: Number(c.sharePercent).toString(),
-          gross: apportion(f.grossAmount, shares)[i]!.amount,
-          vat: apportion(f.vatAmount, shares)[i]!.amount,
-          invoiceTotal: apportion(f.invoiceTotal, shares)[i]!.amount,
-          wht: apportion(f.whtAmount, shares)[i]!.amount,
-          netPayable: apportion(f.netPayable, shares)[i]!.amount,
-        }))
-      : [],
-    notes: text(m.notes ?? ""),
-    bank: m.firm.bank,
+    insurer: m.insurer,
+    insured: { name: m.claim.insuredName },
+    policy: { number: m.claim.policyNumber },
+    claim: { ourReference: m.claim.reference, insurerReference: m.claim.insurerClaimNo ?? "", insuranceClass: m.claim.className, dateOfLoss: formatDate(m.claim.dateOfLoss) },
+    // Each co-insurer owes its share of the fee and expenses and of the VAT; residues go to the lead so columns add up.
+    coInsurers: shares.map((c, i) => ({
+      insurerName: c.name,
+      role: c.role === "LEAD" ? "Lead" : "Follower",
+      sharePercent: Number(c.sharePercent).toString(),
+      feeShare: fees[i]!.amount,
+      vatShare: vats[i]!.amount,
+      totalShareDue: fromKobo(toKobo(fees[i]!.amount) + toKobo(vats[i]!.amount)),
+    })),
+    coAdjuster,
   };
 }

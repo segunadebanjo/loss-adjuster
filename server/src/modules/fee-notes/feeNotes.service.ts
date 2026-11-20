@@ -144,7 +144,8 @@ async function pdfFor(tx: Tx | typeof prisma, f: FeeNote, date: Date, status: Fe
     expenses: f.expenses as Expense[],
     figures: fig,
     notes: f.notes,
-    amountInWords: nairaInWords(fig.netPayable),
+    amountInWords: nairaInWords(fig.invoiceTotal),
+    basis: { type: claim.settledAmount ? "Agreed settlement" : "Net adjusted loss", amount: moneyOut(claim.settledAmount ?? claim.recommendedSettlement) },
     coInsurers: p.coInsurers.length
       ? [{ name: p.insurerName, role: "LEAD", sharePercent: p.leadSharePercent.toFixed(2) }, ...p.coInsurers.map((c) => ({ name: c.insurerName, role: "FOLLOWER" as const, sharePercent: c.sharePercent.toFixed(2) }))]
       : [],
@@ -158,6 +159,8 @@ export async function issueFeeNote(actor: AuthUser, claimId: number, id: number,
     if (f.status !== "DRAFT") throw unprocessable("Only a draft fee note can be issued.");
     const now = new Date();
     const number = await nextFeeNoteNo(tx, Number(todayLagos(now).slice(0, 4)));
+    // A draft made before a change to the maths is brought up to date (same rates) before it is frozen.
+    await tx.feeNote.update({ where: { id }, data: figures(String(f.professionalFee), f.expenses as Expense[], String(f.vatRate), String(f.whtRate)) });
     const pdf = await pdfFor(tx, f, now, "ISSUED", number);
     const sha = createHash("sha256").update(pdf).digest("hex");
     const { count } = await tx.feeNote.updateMany({
@@ -166,7 +169,8 @@ export async function issueFeeNote(actor: AuthUser, claimId: number, id: number,
     });
     if (count !== 1) throw conflict("This fee note changed while you were looking at it. Refresh and try again.");
     await syncAdjusterFee(tx, claimId);
-    await recordAudit({ action: "FEE_NOTE_ISSUED", entityType: "FeeNote", entityId: id, claimId, userId: actor.id, details: { feeNoteNo: number, netPayable: moneyOut(f.netPayable), pdfSha256: sha }, ipAddress: ip }, tx);
+    const fresh = await tx.feeNote.findUniqueOrThrow({ where: { id } });
+    await recordAudit({ action: "FEE_NOTE_ISSUED", entityType: "FeeNote", entityId: id, claimId, userId: actor.id, details: { feeNoteNo: number, netPayable: moneyOut(fresh.netPayable), pdfSha256: sha }, ipAddress: ip }, tx);
     return tx.feeNote.findUniqueOrThrow({ where: { id } });
   });
   return feeNoteOut(issued);

@@ -59,7 +59,7 @@ function FeeNoteDialog({ claimId, note, rates, onClose }: { claimId: number; not
           <Button variant="ghost" size="sm" className="mt-2" onClick={() => setExpenses((x) => [...x, { description: "", amount: "" }])}><Plus className="size-3.5" /> Add expense</Button>
         </div>
         <Field label="Note on the fee note" hint="Optional, printed at the bottom.">{(id, d) => <Textarea id={id} aria-describedby={d} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>
-        <p className="text-xs text-slate-500">VAT at {Number(rates.vat)}% is charged on the fee and expenses; withholding tax at {Number(rates.wht)}% of the fee is deducted. The figures are worked out when you save.</p>
+        <p className="text-xs text-slate-500">VAT at {Number(rates.vat)}% is charged on the professional fee (expenses pass through without VAT); withholding tax at {Number(rates.wht)}% of the fee is deducted. The figures are worked out when you save.</p>
       </div>
     </Modal>
   );
