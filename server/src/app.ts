@@ -1,4 +1,6 @@
 import express from "express";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -26,7 +28,17 @@ export function createApp() {
   const app = express();
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
   app.disable("x-powered-by");
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          // Evidence previews, thumbnails and videos come from Cloudinary or S3 signed links.
+          "img-src": ["'self'", "data:", "blob:", "https:"],
+          "media-src": ["'self'", "blob:", "https:"],
+        },
+      },
+    }),
+  );
   app.use(cors({ origin: corsOrigins, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
@@ -63,6 +75,13 @@ export function createApp() {
   api.use("/organisations", organisationRoutes);
   api.use("/users", userRoutes);
   app.use("/api/v1", api);
+
+  // In production the API also serves the built web app (client/dist), so one web service runs both.
+  const clientDist = path.resolve(process.cwd(), env.CLIENT_DIST);
+  if (env.NODE_ENV === "production" && existsSync(path.join(clientDist, "index.html"))) {
+    app.use(express.static(clientDist, { index: false, maxAge: "1h" }));
+    app.get(/^\/(?!api\/|health$).*/, (_req, res) => res.sendFile(path.join(clientDist, "index.html")));
+  }
 
   app.use(notFoundHandler);
   app.use(errorHandler);

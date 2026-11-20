@@ -12,6 +12,8 @@ const schema = z.object({
   ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().min(1).max(120).default(15),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
+  /** The built web app, served by the API in production. Relative to the server folder. */
+  CLIENT_DIST: z.string().default("../client/dist"),
   STORAGE_DRIVER: z.enum(["cloudinary", "s3", "local"]).default("local"),
   STORAGE_DIR: z.string().default("./storage"),
   CLOUDINARY_CLOUD_NAME: z.string().optional(),

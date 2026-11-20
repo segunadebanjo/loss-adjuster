@@ -19,7 +19,8 @@ import { POLICY_TYPE_LABELS } from "../src/modules/claims/claims.service.js";
 
 const prisma = new PrismaClient();
 
-if (process.env.NODE_ENV === "production") {
+// prisma/firstStart.ts runs it once on an empty production database when LOAD_DEMO_DATA=true.
+if (process.env.NODE_ENV === "production" && process.env.SEED_IN_PRODUCTION !== "empty-database") {
   console.error("Refusing to seed: NODE_ENV is production and the seed deletes every row.");
   process.exit(1);
 }

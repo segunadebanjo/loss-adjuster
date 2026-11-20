@@ -207,6 +207,14 @@ npm run build && npm run lint && npm run typecheck
 ```
 Ports 4100/5174 (not the usual 4000/5173) so this app can run beside other local projects.
 
+**Deployment (Render, one web service):** build `npm ci --include=dev && npm run db:generate -w server && npm run build`,
+start `npm run start:prod -w server` (`prisma migrate deploy`, then `prisma/firstStart.ts`, then the server). In
+production `app.ts` serves `CLIENT_DIST` (default `../client/dist`) with an SPA fallback for every path outside `/api/` and
+`/health`, so the site and API share an origin (no CORS, the refresh cookie stays first-party). `firstStart.ts` acts only
+while there are no users: `LOAD_DEMO_DATA=true` runs the seed (allowed in production only through it,
+`SEED_IN_PRODUCTION=empty-database`), else `ADMIN_EMAIL`/`ADMIN_PASSWORD` create the first ADMIN. The CSP allows https
+images and media for Cloudinary/S3 links. Details in README.md.
+
 ## 12. Build phases
 
 1. **Foundation** — workspaces, docker-compose, env validation, full Prisma schema + first migration, seed (3 insurers
