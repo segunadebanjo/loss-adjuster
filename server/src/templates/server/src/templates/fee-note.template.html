@@ -1,0 +1,219 @@
+html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fee Note - {{feeNote.number}}</title>
+  <style>
+    @page { size: A4; margin: 18mm 15mm; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 10pt;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 3px solid #0f2942;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .header h1 { margin: 0; font-size: 16pt; color: #0f2942; }
+    .header p { margin: 2px 0; font-size: 8.5pt; color: #475569; }
+    .doc-title {
+      text-align: right;
+    }
+    .doc-title h2 {
+      margin: 0;
+      font-size: 15pt;
+      color: #0f2942;
+      text-transform: uppercase;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .bill-to, .invoice-meta {
+      width: 48%;
+      border: 1px solid #cbd5e1;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 9.5pt;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      font-size: 9.5pt;
+    }
+    th {
+      background-color: #0f2942;
+      color: #ffffff;
+      padding: 7px 10px;
+      text-align: left;
+    }
+    td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 10px;
+    }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .sub-header td {
+      background-color: #f1f5f9;
+      font-weight: 700;
+      color: #0f2942;
+    }
+    .total-row td {
+      background-color: #e0f2fe;
+      font-weight: 700;
+      font-size: 10.5pt;
+      color: #0f2942;
+    }
+    .notice-box {
+      background-color: #fffbeb;
+      border: 1px solid #f59e0b;
+      padding: 8px 12px;
+      font-size: 8.8pt;
+      border-radius: 4px;
+      margin-bottom: 14px;
+    }
+    .bank-box {
+      border: 1px solid #cbd5e1;
+      background-color: #f8fafc;
+      padding: 10px 12px;
+      font-size: 9.2pt;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>{{firm.name}}</h1>
+      <p>{{firm.address}}</p>
+      <p>Tel: {{firm.phone}} | Email: {{firm.email}}</p>
+      <p><strong>NAICOM Reg:</strong> {{firm.naicomRacNumber}} | <strong>TIN:</strong> {{firm.tin}} | <strong>VAT Reg:</strong> {{firm.vatNumber}}</p>
+    </div>
+    <div class="doc-title">
+      <h2>Professional Fee Note</h2>
+      <p><strong>Fee Note No:</strong> {{feeNote.number}}</p>
+      <p><strong>Date Issued:</strong> {{feeNote.issueDate}}</p>
+      <p><strong>Due Date (NAICOM 10-Day SLA):</strong> {{feeNote.dueDate}}</p>
+    </div>
+  </div>
+
+  <div class="info-row">
+    <div class="bill-to">
+      <strong>TO (LEAD INSURER):</strong><br />
+      <strong>{{insurer.name}}</strong><br />
+      {{insurer.address}}<br />
+      Attn: Head of Claims / Technical Department
+    </div>
+    <div class="invoice-meta">
+      <strong>CLAIM PARTICULARS:</strong><br />
+      <strong>Our Ref:</strong> {{claim.ourReference}}<br />
+      <strong>Insurer Ref:</strong> {{claim.insurerReference}}<br />
+      <strong>Insured:</strong> {{insured.name}}<br />
+      <strong>Policy No:</strong> {{policy.number}} ({{claim.insuranceClass}})<br />
+      <strong>Fee Basis ({{feeNote.basisType}}):</strong> ₦{{formatCurrency feeNote.basisAmount}}
+    </div>
+  </div>
+
+  <!-- PROFESSIONAL FEE SLIDING SCALE BREAKDOWN -->
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 48%;">Description / ILAN Scale Bracket</th>
+        <th class="num" style="width: 22%;">Chargeable Band (₦)</th>
+        <th class="num" style="width: 12%;">Rate (%)</th>
+        <th class="num" style="width: 18%;">Amount (₦)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="sub-header">
+        <td colspan="4">A. Professional Adjusting Fee (ILAN / NIA Sliding Scale)</td>
+      </tr>
+      {{#each feeNote.scaleBreakdown}}
+      <tr>
+        <td>{{this.label}}</td>
+        <td class="num">{{formatCurrency this.bandAmount}}</td>
+        <td class="num">{{this.ratePercent}}%</td>
+        <td class="num">{{formatCurrency this.feeAmount}}</td>
+      </tr>
+      {{/each}}
+      <tr>
+        <td colspan="3"><strong>Subtotal &mdash; Professional Fee</strong></td>
+        <td class="num"><strong>{{formatCurrency feeNote.professionalFeeSubtotal}}</strong></td>
+      </tr>
+
+      <tr class="sub-header">
+        <td colspan="4">B. Reimbursable Out-of-Pocket &amp; Specialist Expenses (100% Pass-Through)</td>
+      </tr>
+      {{#each feeNote.expenses}}
+      <tr>
+        <td colspan="3">{{this.description}}</td>
+        <td class="num">{{formatCurrency this.amount}}</td>
+      </tr>
+      {{/each}}
+      <tr>
+        <td colspan="3"><strong>Subtotal &mdash; Reimbursable Expenses</strong></td>
+        <td class="num"><strong>{{formatCurrency feeNote.expensesSubtotal}}</strong></td>
+      </tr>
+
+      <!-- TAX & TOTALS -->
+      <tr>
+        <td colspan="3">Value Added Tax (VAT @ {{feeNote.vatRate}}% on Professional Fee)</td>
+        <td class="num">{{formatCurrency feeNote.vatAmount}}</td>
+      </tr>
+      <tr class="total-row">
+        <td colspan="3">GROSS TOTAL PAYABLE (INCLUSIVE OF VAT)</td>
+        <td class="num">₦{{formatCurrency feeNote.grossTotalPayable}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- CO-INSURANCE FEE APPORTIONMENT TABLE (IF APPLICABLE) -->
+  {{#if coInsurers.length}}
+  <table>
+    <thead>
+      <tr>
+        <th>Participating Insurer</th>
+        <th>Role</th>
+        <th class="num">Share (%)</th>
+        <th class="num">Fee Share (₦)</th>
+        <th class="num">VAT Share (₦)</th>
+        <th class="num">Total Due (₦)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each coInsurers}}
+      <tr>
+        <td>{{this.insurerName}}</td>
+        <td>{{this.role}}</td>
+        <td class="num">{{this.sharePercent}}%</td>
+        <td class="num">{{formatCurrency this.feeShare}}</td>
+        <td class="num">{{formatCurrency this.vatShare}}</td>
+        <td class="num"><strong>{{formatCurrency this.totalShareDue}}</strong></td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{/if}}
+
+  <div class="notice-box">
+    <strong>Statutory Tax &amp; Regulatory Settlement Notice:</strong><br />
+    1. In accordance with NAICOM Market Conduct Guidelines, Loss Adjusters' fees are payable within <strong>10 working days</strong> of Final Report submission.<br />
+    2. Where Withholding Tax (WHT @ {{feeNote.whtRate}}% = ₦{{formatCurrency feeNote.expectedWhtAmount}}) is deducted at source on the professional fee component, please remit the WHT credit note to our TIN (<strong>{{firm.tin}}</strong>) via FIRS TaxPro-Max.
+  </div>
+
+  <div class="bank-box">
+    <strong>REMITTANCE / BANK ACCOUNT DETAILS:</strong><br />
+    <strong>Account Name:</strong> {{firm.bankAccountName}} &nbsp;|&nbsp;
+    <strong>Bank:</strong> {{firm.bankName}} &nbsp;|&nbsp;
+    <strong>Account No (NGN):</strong> {{firm.bankAccountNumber}}
+  </div>
+
+</body>
+</html>
