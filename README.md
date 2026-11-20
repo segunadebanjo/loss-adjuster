@@ -42,10 +42,10 @@ the first admin, then starts the server. Environment variables:
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | two different random strings of 32+ characters |
 | `STORAGE_DRIVER` | `cloudinary`, with `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` |
 | `LOAD_DEMO_DATA` | `true` to fill an empty database with the fictional demo data (set `SEED_PASSWORD` to choose its password) |
-| or `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | to start empty with one Principal Adjuster instead |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | makes that email an active Principal Adjuster with that password on the next start (creates it, or restores and resets it); remove `ADMIN_PASSWORD` after signing in |
 | `FIRM_*` | the firm's details for reports and fee notes |
 
-Neither first-start option does anything once a user exists, so they never touch real data.
+The demo data loads only into an empty database; the admin setting changes only that one account.
 
 ## Before issuing real documents
 
