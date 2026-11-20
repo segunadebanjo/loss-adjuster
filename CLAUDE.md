@@ -1,8 +1,8 @@
 # CLAUDE.md — Loss Adjuster & Claims Management
 
-Guidance for Claude Code when working in `loss-adjuster/`. This app is **separate from the Green Pacific broker ERP**
-in the rest of this repository: it shares no code, database or deployment with it, and the ERP's root `CLAUDE.md` rules
-(Sequelize, ESM JavaScript, `new-backend/`) do **not** apply here. Nothing outside `loss-adjuster/` is touched by this app.
+Guidance for Claude Code when working in this repository. It is a **standalone app**: it was first built inside the
+Green Pacific broker ERP's repository (as `loss-adjuster/`) and moved here with its history on 2026-11-20. It shares no
+code, database, accounts or deployment with that ERP and is not to be integrated with it.
 
 Status: **Phases 1-4 done** (2026-11-20): the four planned phases are built. Open items are listed at the end of section 13.
 Decisions marked _(assumption)_ were accepted by the user on 2026-11-20 and can still be changed.
@@ -20,7 +20,8 @@ Principal Adjuster signs them off; the insurer sees milestones and downloads app
 npm workspaces monorepo, TypeScript everywhere, Node 20 LTS.
 
 ```
-loss-adjuster/
+(repository root)
+  .github/workflows/ci.yml  typecheck, lint, build and tests on every push and pull request
   package.json            workspaces: client, server; root scripts (dev, build, test, lint)
   docker-compose.yml      MySQL 8.0 (port 3306, volume, utf8mb4) + optional Adminer
   client/                 React 18 + Vite + TS + Tailwind + React Router + TanStack Query + Axios + Lucide
@@ -195,7 +196,6 @@ _(assumption)_; General Accident), insurer and date range.
 ## 11. Commands (once Phase 1 lands)
 
 ```sh
-cd loss-adjuster
 docker compose up -d                       # MySQL 8 on :3306
 cp server/.env.example server/.env && cp client/.env.example client/.env
 npm install                                # all workspaces
@@ -205,7 +205,7 @@ npm run dev                                # server :4100, client :5174 (Vite pr
 npm test                                   # vitest (server: unit + API against MySQL)
 npm run build && npm run lint && npm run typecheck
 ```
-Ports avoid the ERP's 4000/5173 so both can run side by side.
+Ports 4100/5174 (not the usual 4000/5173) so this app can run beside other local projects.
 
 ## 12. Build phases
 
@@ -348,7 +348,7 @@ Each phase ends green on build, typecheck, lint and tests, committed and pushed 
     `feeNote.test.ts` (VAT/WHT and amounts in words). 88 in all.
 - **Open items / not built:** WHT rate and its application to expenses need the firm's tax adviser's confirmation;
   SLA working days ignore public holidays; Cloudinary and S3 have not been exercised against live accounts; users
-  can't change their own password (an admin sets it); no email notifications; no CI job for this folder.
+  can't change their own password (an admin sets it); no email notifications.
 
 ## 14. Rules for every change
 
